@@ -1,6 +1,6 @@
 {
   "name": "adsctl",
-  "version": "0.3.0",
+  "version": "0.7.0",
   "description": "Set up adsctl and inspect, audit, report on, monitor, and manage Meta advertising with explicit account scope.",
   "author": {
     "name": "Imre Nagi"

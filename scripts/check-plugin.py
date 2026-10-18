@@ -5,6 +5,7 @@ import argparse
 import json
 from pathlib import Path, PurePosixPath
 import re
+import subprocess
 import tarfile
 import zipfile
 
@@ -13,6 +14,7 @@ ROOT = Path(__file__).resolve().parent.parent
 MANIFESTS = (".codex-plugin/plugin.json", ".claude-plugin/plugin.json", "plugin.json")
 CATALOGS = (".agents/plugins/marketplace.json", ".claude-plugin/marketplace.json")
 SKILLS_CONFIG = ".agents/skills.json"
+VERSION_PATTERN = r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?"
 
 
 def require(condition, message):
@@ -20,7 +22,47 @@ def require(condition, message):
         raise ValueError(message)
 
 
-def check_source():
+def normalize_version(version):
+    cleaned = version[1:] if version.startswith("v") else version
+    require(re.fullmatch(VERSION_PATTERN, cleaned),
+            f"Plugin version must be semantic: {version}")
+    return cleaned
+
+
+def latest_git_version():
+    result = subprocess.run(
+        ["git", "describe", "--tags", "--abbrev=0", "--match", "v[0-9]*"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+    tag = result.stdout.strip()
+    return normalize_version(tag) if tag else None
+
+
+def set_version(version):
+    normalized = normalize_version(version)
+    for path in MANIFESTS:
+        manifest_path = ROOT / path
+        text = manifest_path.read_text()
+        updated, count = re.subn(
+            r'("version"\s*:\s*)"[^"]+"',
+            rf'\g<1>"{normalized}"',
+            text,
+            count=1,
+        )
+        require(count == 1, f"Missing version field in {path}")
+        require(json.loads(updated).get("version") == normalized,
+                f"Failed to set version in {path}")
+        manifest_path.write_text(updated)
+    print(f"Updated plugin manifests to version {normalized}")
+    return normalized
+
+
+def check_source(expected_version=None):
     codex, claude, antigravity = [json.loads((ROOT / path).read_text()) for path in MANIFESTS]
     for key in ("name", "version", "description"):
         require(codex.get(key) == claude.get(key) == antigravity.get(key) and codex.get(key),
@@ -29,8 +71,12 @@ def check_source():
         require(codex.get(key) == claude.get(key) and codex.get(key),
                 f"Codex and Claude manifests must have matching {key}")
     require(codex["name"] == "adsctl", "Unexpected plugin identity")
-    require(re.fullmatch(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?", codex["version"]),
+    require(re.fullmatch(VERSION_PATTERN, codex["version"]),
             "Plugin version must be semantic")
+    target_version = normalize_version(expected_version) if expected_version else latest_git_version()
+    if target_version is not None:
+        require(codex["version"] == target_version,
+                f"Plugin version {codex['version']} must match release version {target_version}")
     require(antigravity.get("$schema") == "https://antigravity.google/schemas/v1/plugin.json",
             "Antigravity manifest must declare the v1 plugin schema")
     require(antigravity.get("displayName") == codex["interface"]["displayName"],
@@ -65,6 +111,7 @@ def check_source():
                 require(target.is_relative_to(ROOT / "skills") and target.is_file(),
                         f"Missing or external skill reference in {doc}: {link}")
     print(f"Plugin {codex['name']} {codex['version']}: manifests, catalogs, and skills checked")
+    return codex["version"]
 
 
 def check_archive(path):
@@ -96,9 +143,20 @@ def check_archive(path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--archives", type=Path, help="Also verify all six distribution archives")
+    parser.add_argument("--version", help="Expected semantic release version (e.g. 0.7.0 or v0.7.0)")
+    parser.add_argument("--set-version", help="Update all plugin manifests to the given semantic version")
     args = parser.parse_args()
-    check_source()
+    if args.set_version:
+        set_version(args.set_version)
+    expected_version = args.version or args.set_version
+    plugin_version = check_source(expected_version=expected_version)
     if args.archives:
+        metadata_path = args.archives / "metadata.json"
+        if metadata_path.is_file():
+            metadata = json.loads(metadata_path.read_text())
+            archive_version = normalize_version(metadata["tag"])
+            require(plugin_version == archive_version,
+                    f"Plugin version {plugin_version} must match archive tag version {archive_version}")
         archives = sorted([*args.archives.glob("adsctl_*.tar.gz"),
                            *args.archives.glob("adsctl_*.zip")])
         require(len(archives) == 6, "Expected six OS/architecture archives")
