@@ -1,6 +1,6 @@
 # Codex and Claude Code plugin
 
-The `adsctl` plugin bundles two shared skills: `adsctl-setup` for CLI installation and Meta credentials, and `adsctl` for reporting, monitoring, and authorized management. The repository root is the plugin root. Host-specific manifests point to the same `skills/` tree; no MCP server or connector is required.
+The `adsctl` plugin bundles three shared skills: `adsctl-setup` for CLI installation and Meta credentials, `adsctl-meta-analyst` for structured campaign performance audits and funnel diagnostics, and `adsctl` for reporting, monitoring, and authorized management. The repository root is the plugin root. Host-specific manifests point to the same `skills/` tree; no MCP server or connector is required.
 
 Use a local host with shell execution. The setup skill installs the CLI through the release installer and guides credential provisioning. On macOS/Linux:
 
@@ -40,7 +40,7 @@ claude plugin install adsctl@adsctl
 claude plugin details adsctl
 ```
 
-After publication, use `claude plugin marketplace add imrenagicom/adsctl` instead of the local path. Inside Claude Code, the equivalent commands begin with `/plugin marketplace add` and `/plugin install`. Start a new session, then invoke `/adsctl:adsctl-setup` for setup or `/adsctl:adsctl` for operations. For temporary development without installation, use `claude --plugin-dir /absolute/path/to/adsctl`.
+After publication, use `claude plugin marketplace add imrenagicom/adsctl` instead of the local path. Inside Claude Code, the equivalent commands begin with `/plugin marketplace add` and `/plugin install`. Start a new session, then invoke `/adsctl:adsctl-setup` for setup, `/adsctl:adsctl-meta-analyst` for campaign performance audits, or `/adsctl:adsctl` for operations. For temporary development without installation, use `claude --plugin-dir /absolute/path/to/adsctl`.
 
 ## Verify and maintain the package
 

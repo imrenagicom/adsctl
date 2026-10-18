@@ -1,0 +1,4 @@
+interface:
+  display_name: "adsctl Meta Analyst"
+  short_description: "Audit Meta campaign performance and funnel metrics with adsctl"
+  default_prompt: "Use $adsctl-meta-analyst to evaluate our running Meta campaign performance, diagnose funnel bottlenecks, and recommend next actions."

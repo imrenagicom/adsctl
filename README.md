@@ -2,9 +2,12 @@
 
 A Go and Cobra CLI for inspecting, monitoring, creating and managing advertising. Meta is implemented first; Google is a future adapter. The CLI is designed for AI agents and shell automation: JSON by default, explicit account scope, external credentials, bounded reads and recoverable launch runs.
 
-The repository includes an [adsctl agent skill](skills/adsctl/SKILL.md) with reporting, monitoring, management and launch recovery workflows. Its `skills/adsctl` directory is a self-contained skill package for compatible agent runtimes.
+The repository includes three shared agent skills in `skills/`:
+- [`adsctl`](skills/adsctl/SKILL.md) for reporting, monitoring, management, and launch recovery workflows;
+- [`adsctl-meta-analyst`](skills/adsctl-meta-analyst/SKILL.md) for structured Meta campaign performance audits, funnel diagnostics, and media-buyer recommendations;
+- [`adsctl-setup`](skills/adsctl-setup/SKILL.md) for CLI installation, developer apps, user and system-user tokens, asset permissions, secret references, and bounded authentication checks.
 
-For installation and Meta API credentials, use the [adsctl-setup skill](skills/adsctl-setup/SKILL.md). It covers developer apps, user and system-user tokens, asset permissions, secret references, and bounded authentication checks. Both skills are included in release archives.
+All three skills are included in release archives.
 
 ## Install
 
@@ -36,7 +39,7 @@ The curl endpoint becomes available in the first release that publishes `install
 
 ## Codex and Claude Code plugin
 
-The repository is also an `adsctl` plugin for Codex and Claude Code, bundling both skills. Register a local checkout or extracted plugin distribution and install it:
+The repository is also an `adsctl` plugin for Codex and Claude Code, bundling all three skills. Register a local checkout or extracted plugin distribution and install it:
 
 ```sh
 # Codex
@@ -48,7 +51,7 @@ claude plugin marketplace add /absolute/path/to/adsctl
 claude plugin install adsctl@adsctl
 ```
 
-Run the setup workflow in Codex or `/adsctl:adsctl-setup` in Claude Code, then use the operations skill (`/adsctl:adsctl` in Claude Code). The CLI must be available on the agent host's PATH and Meta credentials must be supplied separately. See [plugin installation and verification](docs/plugins.md) for GitHub installation, development, updates, and platform requirements.
+Run the setup workflow in Codex or `/adsctl:adsctl-setup` in Claude Code, then use `/adsctl:adsctl-meta-analyst` for campaign performance audits or `/adsctl:adsctl` for general reporting and management operations. The CLI must be available on the agent host's PATH and Meta credentials must be supplied separately. See [plugin installation and verification](docs/plugins.md) for GitHub installation, development, updates, and platform requirements.
 
 ## Build and verify
 

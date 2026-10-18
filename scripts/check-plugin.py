@@ -34,7 +34,8 @@ def check_source():
     require(onboarding == "./skills/adsctl-setup/SKILL.md" and (ROOT / onboarding).is_file(),
             "Onboarding must point to the packaged setup skill")
     skills = {p.parent.name for p in (ROOT / "skills").glob("*/SKILL.md")}
-    require(skills == {"adsctl", "adsctl-setup"}, "Both shared skills must be discoverable")
+    require(skills == {"adsctl", "adsctl-setup", "adsctl-meta-analyst"},
+            "All shared skills must be discoverable")
     for path in CATALOGS:
         catalog = json.loads((ROOT / path).read_text())
         require(catalog["name"] == "adsctl", f"Wrong marketplace name in {path}")

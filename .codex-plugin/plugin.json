@@ -1,13 +1,13 @@
 {
   "name": "adsctl",
-  "version": "0.2.0",
-  "description": "Set up adsctl and inspect, report on, monitor, and manage Meta advertising with explicit account scope.",
+  "version": "0.3.0",
+  "description": "Set up adsctl and inspect, audit, report on, monitor, and manage Meta advertising with explicit account scope.",
   "author": {
     "name": "Imre Nagi"
   },
   "homepage": "https://github.com/imrenagicom/adsctl",
   "repository": "https://github.com/imrenagicom/adsctl",
-  "keywords": ["adsctl", "meta", "advertising", "reporting"],
+  "keywords": ["adsctl", "meta", "advertising", "reporting", "analytics"],
   "skills": "./skills/",
   "requires_local_executor": true,
   "extensions": {
@@ -17,13 +17,14 @@
   },
   "interface": {
     "displayName": "adsctl",
-    "shortDescription": "Set up, inspect, and manage Meta ads",
-    "longDescription": "Install the adsctl CLI, configure external Meta credentials, inspect advertising performance, and carry out explicitly scoped management and campaign launch workflows.",
+    "shortDescription": "Set up, audit, and manage Meta ads",
+    "longDescription": "Install the adsctl CLI, configure external Meta credentials, audit campaign funnel performance, and carry out explicitly scoped management and campaign launch workflows.",
     "developerName": "Imre Nagi",
     "category": "Productivity",
     "capabilities": ["Read", "Write"],
     "defaultPrompt": [
       "Use the adsctl setup skill to install the CLI and configure Meta API access.",
+      "Use adsctl-meta-analyst to evaluate our running Meta campaign performance and recommend next actions.",
       "Use adsctl to summarize performance for my selected Meta ad account."
     ]
   }

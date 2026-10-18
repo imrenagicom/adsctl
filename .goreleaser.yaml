@@ -33,6 +33,7 @@ archives:
       - docs/plugins.md
       - skills/adsctl/**
       - skills/adsctl-setup/**
+      - skills/adsctl-meta-analyst/**
       - .codex-plugin/plugin.json
       - .claude-plugin/plugin.json
       - .claude-plugin/marketplace.json

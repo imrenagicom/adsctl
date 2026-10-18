@@ -1,11 +1,11 @@
 {
   "name": "adsctl",
-  "version": "0.2.0",
-  "description": "Set up adsctl and inspect, report on, monitor, and manage Meta advertising with explicit account scope.",
+  "version": "0.3.0",
+  "description": "Set up adsctl and inspect, audit, report on, monitor, and manage Meta advertising with explicit account scope.",
   "author": {
     "name": "Imre Nagi"
   },
   "homepage": "https://github.com/imrenagicom/adsctl",
   "repository": "https://github.com/imrenagicom/adsctl",
-  "keywords": ["adsctl", "meta", "advertising", "reporting"]
+  "keywords": ["adsctl", "meta", "advertising", "reporting", "analytics"]
 }
