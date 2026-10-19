@@ -148,6 +148,10 @@ func joinPath(path, key string) string {
 // intentionally narrow: only add fields the provider documents as sets, and
 // keep strictly ordered arrays positional.
 var setValuedFields = map[string]bool{
+	"asset_feed_spec.ad_formats":           true,
+	"asset_feed_spec.bodies":               true,
+	"asset_feed_spec.call_to_action_types": true,
+	"asset_feed_spec.titles":               true,
 	"special_ad_categories":                true,
 	"targeting.publisher_platforms":        true,
 	"targeting.facebook_positions":         true,

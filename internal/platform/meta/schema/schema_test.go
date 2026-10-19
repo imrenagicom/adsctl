@@ -146,35 +146,47 @@ func TestApplyTextOptionsAndCloneCreative(t *testing.T) {
 		t.Fatal(err)
 	}
 	story := cloned["object_story_spec"].(map[string]any)
-	linkData := story["link_data"].(map[string]any)
-	if linkData["message"] != nil || linkData["name"] != nil {
-		t.Fatalf("expected link_data message/name to be removed, got %v", linkData)
-	}
-	if linkData["image_hash"] != "abc123" || linkData["link"] != "https://example.com/app" {
-		t.Fatalf("expected link_data media/link preserved, got %v", linkData)
+	if story["link_data"] != nil {
+		t.Fatalf("expected link_data migrated into asset_feed_spec and removed from object_story_spec, got %v", story)
 	}
 	afs := cloned["asset_feed_spec"].(map[string]any)
 	bodies := afs["bodies"].([]any)
 	titles := afs["titles"].([]any)
-	if len(bodies) != 5 || bodies[0].(map[string]any)["text"] != "Opt 4 first" || len(titles) != 3 {
+	if len(bodies) != 5 || bodies[0].(map[string]any)["text"] != "Opt 4 first" || len(titles) != 3 || afs["optimization_type"] != "REGULAR" {
 		t.Fatalf("unexpected asset_feed_spec: %v", afs)
 	}
-	// Verify provider response with id fields on bodies/titles matches planned payload
+	if len(afs["images"].([]any)) != 1 || len(afs["link_urls"].([]any)) != 1 || len(afs["call_to_action_types"].([]any)) != 1 || len(afs["ad_formats"].([]any)) != 1 {
+		t.Fatalf("expected media, link_urls, call_to_action_types, and ad_formats migrated into asset_feed_spec, got %v", afs)
+	}
+	dof := cloned["degrees_of_freedom_spec"].(map[string]any)
+	cfs := dof["creative_features_spec"].(map[string]any)
+	if cfs["text_optimizations"].(map[string]any)["enroll_status"] != "OPT_IN" {
+		t.Fatalf("expected text_optimizations OPT_IN, got %v", dof)
+	}
+	// Verify provider response with id fields and reordered bodies[2..4] matches planned payload
 	observed := map[string]any{
 		"id":                "999",
 		"account_id":        "123",
 		"name":              "Story Ad Creative v4 - 2026-10-20",
 		"object_story_spec": story,
 		"url_tags":          "utm_source=ig",
+		"degrees_of_freedom_spec": map[string]any{
+			"creative_features_spec": map[string]any{
+				"text_optimizations": map[string]any{"enroll_status": "OPT_IN"},
+			},
+		},
 		"asset_feed_spec": map[string]any{
-			"ad_formats":        []any{"AUTOMATIC_FORMAT"},
-			"optimization_type": "DEGREES_OF_FREEDOM",
+			"ad_formats":           []any{"SINGLE_IMAGE"},
+			"optimization_type":    "REGULAR",
+			"images":               []any{map[string]any{"hash": "abc123"}},
+			"link_urls":            []any{map[string]any{"website_url": "https://example.com/app"}},
+			"call_to_action_types": []any{"LEARN_MORE"},
 			"bodies": []any{
 				map[string]any{"id": "1", "text": "Opt 4 first"},
 				map[string]any{"id": "2", "text": "Opt 1"},
-				map[string]any{"id": "3", "text": "Opt 2"},
-				map[string]any{"id": "4", "text": "Opt 3"},
 				map[string]any{"id": "5", "text": "Opt 5"},
+				map[string]any{"id": "4", "text": "Opt 3"},
+				map[string]any{"id": "3", "text": "Opt 2"},
 			},
 			"titles": []any{
 				map[string]any{"id": "6", "text": "Headline 1"},
@@ -186,15 +198,15 @@ func TestApplyTextOptionsAndCloneCreative(t *testing.T) {
 	if path := FirstMismatch("creatives", cloned, observed); path != "" {
 		t.Fatalf("expected observed creative to match planned payload, got mismatch at %s", path)
 	}
-	// Cloning from an already multi-text observed creative while overriding only primaryTexts preserves normalized titles.
+	// Cloning from an already multi-text observed creative while overriding only primaryTexts preserves normalized titles and media.
 	recloned, err := CloneCreativeForTextOptions(observed, "Story Ad Creative v5", []string{"New Opt 1", "New Opt 2"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	reAFS := recloned["asset_feed_spec"].(map[string]any)
 	reTitles := reAFS["titles"].([]any)
-	if len(reTitles) != 3 || reTitles[0].(map[string]any)["id"] != nil {
-		t.Fatalf("expected provider id stripped from preserved titles, got %v", reTitles)
+	if len(reTitles) != 3 || reTitles[0].(map[string]any)["id"] != nil || len(reAFS["images"].([]any)) != 1 {
+		t.Fatalf("expected provider id stripped from preserved titles and images preserved, got %v", reAFS)
 	}
 	// Reject >5 options or blank strings.
 	if err := ApplyTextOptions(map[string]any{}, []string{"1", "2", "3", "4", "5", "6"}, nil); err == nil {
