@@ -201,3 +201,48 @@ func TestBudgetCurrencyAndObservedAmount(t *testing.T) {
 		})
 	}
 }
+
+func TestAdsTextSetClonesCreativeAndUpdatesAd(t *testing.T) {
+	posts := 0
+	currentCreativeID := "300"
+	a, out, _, path := testApp(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "POST" {
+			posts++
+			if err := r.ParseForm(); err != nil {
+				t.Error(err)
+			}
+			switch r.URL.Path {
+			case "/v25.0/act_123/adcreatives":
+				if !bytes.Contains([]byte(r.Form.Get("asset_feed_spec")), []byte(`"Opt 4"`)) {
+					t.Errorf("missing expected primary text in asset_feed_spec: %s", r.Form.Get("asset_feed_spec"))
+				}
+				_, _ = fmt.Fprint(w, `{"id":"301"}`)
+				return
+			case "/v25.0/456":
+				currentCreativeID = "301"
+				_, _ = fmt.Fprint(w, `{"success":true}`)
+				return
+			}
+		}
+		switch r.URL.Path {
+		case "/v25.0/456":
+			_, _ = fmt.Fprintf(w, `{"id":"456","account_id":"123","name":"Ad 1","status":"ACTIVE","effective_status":"ACTIVE","creative":{"id":%q}}`, currentCreativeID)
+		case "/v25.0/300":
+			_, _ = fmt.Fprint(w, `{"id":"300","account_id":"123","name":"Creative v1","object_story_spec":{"page_id":"10","link_data":{"image_hash":"h1","link":"https://example.com","message":"old","name":"old title"}},"url_tags":"utm_source=ig"}`)
+		case "/v25.0/301":
+			_, _ = fmt.Fprint(w, `{"id":"301","account_id":"123","name":"Creative v2","object_story_spec":{"page_id":"10","link_data":{"image_hash":"h1","link":"https://example.com"}},"url_tags":"utm_source=ig","asset_feed_spec":{"optimization_type":"DEGREES_OF_FREEDOM","bodies":[{"id":"1","text":"Opt 4"},{"id":"2","text":"Opt 1"}],"titles":[{"id":"3","text":"Head 1"}]}}`)
+		}
+	})
+	err := executeTest(a, []string{
+		"--config", path,
+		"meta", "ads", "text", "set", "456",
+		"--profile", "test", "--account", "123",
+		"--name", "Creative v2",
+		"--primary-text", "Opt 4",
+		"--primary-text", "Opt 1",
+		"--headline", "Head 1",
+	})
+	if err != nil || posts != 2 || !bytes.Contains(out.Bytes(), []byte(`"creative_id": "301"`)) || !bytes.Contains(out.Bytes(), []byte(`"previous_creative_id": "300"`)) {
+		t.Fatal(err, posts, out.String())
+	}
+}

@@ -14,6 +14,7 @@ import (
 
 type mutationFlags struct {
 	File, Name, Objective, Categories, Adset, Creative, Status string
+	PrimaryTexts, Headlines                                    []string
 	Dry                                                        bool
 }
 
@@ -39,6 +40,10 @@ func (a *App) addMutations(g *cobra.Command, resource string) {
 		cmd.Flags().BoolVar(&f.Dry, "dry-run", false, "Return plan without advertising writes")
 		if op == "create" || op == "update" || op == "validate" {
 			cmd.Flags().StringVar(&f.File, "file", "", "Native JSON payload path or - for stdin")
+			if resource == "creatives" && (op == "create" || op == "validate") {
+				cmd.Flags().StringArrayVar(&f.PrimaryTexts, "primary-text", nil, "Primary text option (repeatable, 1 to 5 options)")
+				cmd.Flags().StringArrayVar(&f.Headlines, "headline", nil, "Headline option (repeatable, 1 to 5 options)")
+			}
 			if op != "validate" {
 				cmd.Flags().StringVar(&f.Name, "name", "", "Native name")
 				if resource != "creatives" {
@@ -142,6 +147,7 @@ func (a *App) addMutations(g *cobra.Command, resource string) {
 		cmd.Flags().StringVar(&creative, "creative", "", "Creative ID")
 		cmd.Flags().BoolVar(&dry, "dry-run", false, "Plan without writing")
 		g2.AddCommand(cmd)
+		a.addAdText(g)
 	}
 	if resource == "ads" || resource == "creatives" {
 		a.addPreview(g, resource)
@@ -187,6 +193,14 @@ func (a *App) payload(c *cobra.Command, resource, op string, f *mutationFlags) (
 		}
 		if f.Creative != "" {
 			p["creative"] = map[string]any{"creative_id": f.Creative}
+		}
+	}
+	if len(f.PrimaryTexts) > 0 || len(f.Headlines) > 0 {
+		if op != "create" || resource != "creatives" {
+			return nil, output.Fail("USAGE", "Text option flags are only supported when creating or validating creatives.", 2)
+		}
+		if err := schema.ApplyTextOptions(p, f.PrimaryTexts, f.Headlines); err != nil {
+			return nil, err
 		}
 	}
 	if op == "create" {
@@ -368,4 +382,82 @@ func (a *App) addPreview(g *cobra.Command, resource string) {
 	cmd.Args = cobra.ExactArgs(1)
 	cmd.Flags().StringVar(&format, "format", "DESKTOP_FEED_STANDARD", "Native ad preview format")
 	g.AddCommand(cmd)
+}
+func (a *App) addAdText(g *cobra.Command) {
+	tg := group("text", "Update primary text and headline options by creating and attaching a new creative")
+	g.AddCommand(tg)
+	var primaryTexts, headlines []string
+	var name string
+	var dry bool
+	cmd := action("set ID", "Set 1 to 5 primary text and/or headline options on an ad", "write", func(c *cobra.Command, args []string) error {
+		if len(primaryTexts) == 0 && len(headlines) == 0 {
+			return output.Fail("USAGE", "Provide at least one --primary-text or --headline option.", 2)
+		}
+		r, err := a.runtime(c, true, true)
+		if err != nil {
+			return err
+		}
+		defer r.Cancel()
+		if err = verify(r, "ads", args[0]); err != nil {
+			return err
+		}
+		adObj, err := r.Client.Request(r.Ctx, "GET", args[0], url.Values{"fields": {"id,name,creative{id}"}})
+		if err != nil {
+			return err
+		}
+		creativeMap, _ := adObj.Value["creative"].(map[string]any)
+		creativeID := strings.TrimSpace(fmt.Sprint(creativeMap["id"]))
+		if creativeID == "" || creativeID == "<nil>" {
+			return output.Fail("VALIDATION", "Ad does not have a readable creative ID.", 5)
+		}
+		if err = verify(r, "creatives", creativeID); err != nil {
+			return err
+		}
+		creativeObj, err := r.Client.Request(r.Ctx, "GET", creativeID, url.Values{"fields": {"id,name,object_story_spec,asset_feed_spec,url_tags,degrees_of_freedom_spec"}})
+		if err != nil {
+			return err
+		}
+		creativePayload, err := schema.CloneCreativeForTextOptions(creativeObj.Value, name, primaryTexts, headlines)
+		if err != nil {
+			return err
+		}
+		if dry {
+			return a.emit(c, map[string]any{
+				"resource":             "ads",
+				"operation":            "text.set",
+				"id":                   args[0],
+				"previous_creative_id": creativeID,
+				"creative_payload":     creativePayload,
+				"state":                "dry_run",
+			})
+		}
+		creativeReceipt, err := mutate(r, "creatives", "create", "", creativePayload, false)
+		if err != nil {
+			return a.partial(c, map[string]any{
+				"resource":             "ads",
+				"operation":            "text.set",
+				"id":                   args[0],
+				"previous_creative_id": creativeID,
+				"creative":             creativeReceipt,
+				"state":                "partial",
+			}, err)
+		}
+		newCreativeID := fmt.Sprint(creativeReceipt["id"])
+		adPayload := map[string]any{"creative": map[string]any{"creative_id": newCreativeID}}
+		adReceipt, err := mutate(r, "ads", "update", args[0], adPayload, false)
+		adReceipt["operation"] = "text.set"
+		adReceipt["previous_creative_id"] = creativeID
+		adReceipt["creative_id"] = newCreativeID
+		adReceipt["creative"] = creativeReceipt
+		if err != nil {
+			return a.partial(c, adReceipt, err)
+		}
+		return a.emit(c, adReceipt)
+	})
+	cmd.Args = cobra.ExactArgs(1)
+	cmd.Flags().StringArrayVar(&primaryTexts, "primary-text", nil, "Primary text option (repeatable, 1 to 5 options)")
+	cmd.Flags().StringArrayVar(&headlines, "headline", nil, "Headline option (repeatable, 1 to 5 options)")
+	cmd.Flags().StringVar(&name, "name", "", "Optional name for the newly created creative")
+	cmd.Flags().BoolVar(&dry, "dry-run", false, "Plan without writing")
+	tg.AddCommand(cmd)
 }

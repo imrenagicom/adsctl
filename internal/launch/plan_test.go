@@ -94,3 +94,26 @@ func TestPlanDetectsChangedAssets(t *testing.T) {
 		t.Fatal("changed media accepted")
 	}
 }
+func TestPlanSupportsCreativePrimaryTextsAndHeadlines(t *testing.T) {
+	multiTextManifest := strings.Replace(manifest,
+		"      object_story_id: '123_456'",
+		"      object_story_spec:\n        page_id: '101'\n        link_data:\n          image_hash: abc\n          link: https://example.com\n    primary_texts:\n      - Primary 1\n      - Primary 2\n    headlines:\n      - Headline 1",
+		1,
+	)
+	p, err := Compile([]byte(multiTextManifest), t.TempDir(), Scope{Account: "act_123"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	step, ok := p.Step("creatives.post")
+	if !ok {
+		t.Fatal("missing creative step")
+	}
+	payload, err := Payload(step, map[string]string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	afs, ok := payload["asset_feed_spec"].(map[string]any)
+	if !ok || len(afs["bodies"].([]any)) != 2 || len(afs["titles"].([]any)) != 1 {
+		t.Fatalf("unexpected asset_feed_spec in compiled payload: %v", payload)
+	}
+}
