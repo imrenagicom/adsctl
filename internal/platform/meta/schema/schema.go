@@ -202,3 +202,153 @@ func Decode(b []byte) (map[string]any, error) {
 	}
 	return p, nil
 }
+
+// ApplyTextOptions configures 1 to 5 primary text options (asset_feed_spec.bodies)
+// and/or 1 to 5 headline options (asset_feed_spec.titles) on a creative payload,
+// normalizing object_story_spec.link_data and object_story_spec.video_data so
+// Meta does not reject conflicting single-text and multi-text fields.
+func ApplyTextOptions(p map[string]any, primaryTexts, headlines []string) error {
+	if len(primaryTexts) > 5 || len(headlines) > 5 {
+		return output.Fail("VALIDATION", "Primary text and headline options must be 1 to 5 non-empty strings.", 5)
+	}
+	for _, list := range [][]string{primaryTexts, headlines} {
+		for _, s := range list {
+			if strings.TrimSpace(s) == "" {
+				return output.Fail("VALIDATION", "Primary text and headline options must be 1 to 5 non-empty strings.", 5)
+			}
+		}
+	}
+	if len(primaryTexts) == 0 && len(headlines) == 0 {
+		return nil
+	}
+	feed, _ := p["asset_feed_spec"].(map[string]any)
+	if feed == nil {
+		feed = map[string]any{}
+	}
+	if existingBodies := normalizeTextItems(feed["bodies"]); len(existingBodies) > 0 {
+		feed["bodies"] = existingBodies
+	}
+	if existingTitles := normalizeTextItems(feed["titles"]); len(existingTitles) > 0 {
+		feed["titles"] = existingTitles
+	}
+	if story, ok := p["object_story_spec"].(map[string]any); ok {
+		for _, spec := range []struct {
+			key, bodyField, titleField string
+		}{
+			{"link_data", "message", "name"},
+			{"video_data", "message", "title"},
+		} {
+			if data, ok := story[spec.key].(map[string]any); ok {
+				if len(primaryTexts) == 0 && feed["bodies"] == nil {
+					if msg, ok := data[spec.bodyField].(string); ok && strings.TrimSpace(msg) != "" {
+						feed["bodies"] = []any{map[string]any{"text": msg}}
+					}
+				}
+				if len(headlines) == 0 && feed["titles"] == nil {
+					if title, ok := data[spec.titleField].(string); ok && strings.TrimSpace(title) != "" {
+						feed["titles"] = []any{map[string]any{"text": title}}
+					}
+				}
+				delete(data, spec.bodyField)
+				delete(data, spec.titleField)
+			}
+		}
+	}
+	if len(primaryTexts) > 0 {
+		bodies := make([]any, len(primaryTexts))
+		for i, s := range primaryTexts {
+			bodies[i] = map[string]any{"text": s}
+		}
+		feed["bodies"] = bodies
+	}
+	if len(headlines) > 0 {
+		titles := make([]any, len(headlines))
+		for i, s := range headlines {
+			titles[i] = map[string]any{"text": s}
+		}
+		feed["titles"] = titles
+	}
+	if feed["optimization_type"] == nil || feed["optimization_type"] == "" {
+		feed["optimization_type"] = "DEGREES_OF_FREEDOM"
+	}
+	p["asset_feed_spec"] = feed
+	delete(p, "body")
+	delete(p, "title")
+	return nil
+}
+
+// CloneCreativeForTextOptions builds a new creative create payload from an
+// observed creative object, preserving object_story_spec, url_tags, and any
+// unreplaced text options while applying the new primaryTexts and headlines.
+func CloneCreativeForTextOptions(observed map[string]any, name string, primaryTexts, headlines []string) (map[string]any, error) {
+	if len(primaryTexts) == 0 && len(headlines) == 0 {
+		return nil, output.Fail("USAGE", "Provide at least one --primary-text or --headline option.", 2)
+	}
+	raw, err := json.Marshal(observed)
+	if err != nil {
+		return nil, output.Fail("VALIDATION", "Cannot serialize existing creative.", 5)
+	}
+	cloned, err := Decode(raw)
+	if err != nil {
+		return nil, err
+	}
+	creativeName := strings.TrimSpace(name)
+	if creativeName == "" {
+		creativeName, _ = cloned["name"].(string)
+		creativeName = strings.TrimSpace(creativeName)
+	}
+	if creativeName == "" {
+		return nil, output.Fail("VALIDATION", "Creative requires a name.", 5)
+	}
+	story, ok := cloned["object_story_spec"].(map[string]any)
+	if !ok || len(story) == 0 {
+		return nil, output.Fail("VALIDATION", "Existing creative must have object_story_spec to clone text options.", 5)
+	}
+	out := map[string]any{
+		"name":              creativeName,
+		"object_story_spec": story,
+	}
+	if ut, ok := cloned["url_tags"].(string); ok && strings.TrimSpace(ut) != "" {
+		out["url_tags"] = ut
+	}
+	if afs, ok := cloned["asset_feed_spec"].(map[string]any); ok {
+		cleanAFS := map[string]any{}
+		if bodies := normalizeTextItems(afs["bodies"]); len(bodies) > 0 {
+			cleanAFS["bodies"] = bodies
+		}
+		if titles := normalizeTextItems(afs["titles"]); len(titles) > 0 {
+			cleanAFS["titles"] = titles
+		}
+		if opt, ok := afs["optimization_type"].(string); ok && strings.TrimSpace(opt) != "" {
+			cleanAFS["optimization_type"] = opt
+		}
+		if len(cleanAFS) > 0 {
+			out["asset_feed_spec"] = cleanAFS
+		}
+	}
+	if err := ApplyTextOptions(out, primaryTexts, headlines); err != nil {
+		return nil, err
+	}
+	if err := Validate("creatives", "create", out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func normalizeTextItems(v any) []any {
+	items, ok := v.([]any)
+	if !ok || len(items) == 0 {
+		return nil
+	}
+	out := make([]any, 0, len(items))
+	for _, raw := range items {
+		m, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if t, ok := m["text"].(string); ok && strings.TrimSpace(t) != "" {
+			out = append(out, map[string]any{"text": t})
+		}
+	}
+	return out
+}

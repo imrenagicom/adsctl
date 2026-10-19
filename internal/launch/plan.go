@@ -34,13 +34,15 @@ type Asset struct {
 	File string `yaml:"file" json:"file"`
 }
 type Node struct {
-	Key         string         `yaml:"key" json:"key"`
-	Payload     map[string]any `yaml:"payload" json:"payload"`
-	CampaignRef string         `yaml:"campaign_ref,omitempty" json:"campaign_ref,omitempty"`
-	AdsetRef    string         `yaml:"adset_ref,omitempty" json:"adset_ref,omitempty"`
-	CreativeRef string         `yaml:"creative_ref,omitempty" json:"creative_ref,omitempty"`
-	ImageRef    string         `yaml:"image_ref,omitempty" json:"image_ref,omitempty"`
-	VideoRef    string         `yaml:"video_ref,omitempty" json:"video_ref,omitempty"`
+	Key          string         `yaml:"key" json:"key"`
+	Payload      map[string]any `yaml:"payload" json:"payload"`
+	CampaignRef  string         `yaml:"campaign_ref,omitempty" json:"campaign_ref,omitempty"`
+	AdsetRef     string         `yaml:"adset_ref,omitempty" json:"adset_ref,omitempty"`
+	CreativeRef  string         `yaml:"creative_ref,omitempty" json:"creative_ref,omitempty"`
+	ImageRef     string         `yaml:"image_ref,omitempty" json:"image_ref,omitempty"`
+	VideoRef     string         `yaml:"video_ref,omitempty" json:"video_ref,omitempty"`
+	PrimaryTexts []string       `yaml:"primary_texts,omitempty" json:"primary_texts,omitempty"`
+	Headlines    []string       `yaml:"headlines,omitempty" json:"headlines,omitempty"`
 }
 type Scope struct {
 	Profile    string `json:"profile"`
@@ -108,6 +110,14 @@ func Compile(b []byte, base string, scope Scope) (Plan, error) {
 			n.Payload, err = schema.Decode(raw)
 			if err != nil {
 				return Plan{}, err
+			}
+			if len(n.PrimaryTexts) > 0 || len(n.Headlines) > 0 {
+				if pair.resource != "creatives" {
+					return Plan{}, output.Fail("VALIDATION", "primary_texts and headlines are only valid on creatives.", 5)
+				}
+				if err := schema.ApplyTextOptions(n.Payload, n.PrimaryTexts, n.Headlines); err != nil {
+					return Plan{}, err
+				}
 			}
 			schema.Defaults(pair.resource, n.Payload)
 			p.Steps = append(p.Steps, Step{Key: pair.resource + "." + n.Key, Resource: pair.resource, Node: n})
@@ -184,7 +194,7 @@ func (p Plan) Validate(checkDigest bool) error {
 			if s.Resource != "creatives" && s.Node.Payload["status"] != "PAUSED" {
 				return output.Fail("VALIDATION", "Launch creates must remain PAUSED; activate the run separately.", 5)
 			}
-			if s.Node.CampaignRef != "" && s.Resource != "adsets" || s.Node.AdsetRef != "" && s.Resource != "ads" || s.Node.CreativeRef != "" && s.Resource != "ads" || (s.Node.ImageRef != "" || s.Node.VideoRef != "") && s.Resource != "creatives" {
+			if s.Node.CampaignRef != "" && s.Resource != "adsets" || s.Node.AdsetRef != "" && s.Resource != "ads" || s.Node.CreativeRef != "" && s.Resource != "ads" || (s.Node.ImageRef != "" || s.Node.VideoRef != "" || len(s.Node.PrimaryTexts) > 0 || len(s.Node.Headlines) > 0) && s.Resource != "creatives" {
 				return output.Fail("VALIDATION", "Reference is not valid for this resource.", 5)
 			}
 			payload, err := Payload(s, ids)
@@ -219,6 +229,11 @@ func Payload(s Step, ids map[string]string) (map[string]any, error) {
 		return nil, err
 	}
 	n := s.Node
+	if len(n.PrimaryTexts) > 0 || len(n.Headlines) > 0 {
+		if err := schema.ApplyTextOptions(p, n.PrimaryTexts, n.Headlines); err != nil {
+			return nil, err
+		}
+	}
 	for _, ref := range []struct{ key, field, value string }{{"campaigns", "campaign_id", n.CampaignRef}, {"adsets", "adset_id", n.AdsetRef}, {"creatives", "creative", n.CreativeRef}} {
 		if ref.value != "" {
 			if p[ref.field] != nil {

@@ -10,6 +10,7 @@ adsctl meta campaigns pause CAMPAIGN_ID --profile "$WRITE_PROFILE" --account "$A
 adsctl meta campaigns pause CAMPAIGN_ID --profile "$WRITE_PROFILE" --account "$ACCOUNT"
 adsctl meta adsets budget set ADSET_ID --daily-budget-minor 2500 --currency USD --profile "$WRITE_PROFILE" --account "$ACCOUNT" --dry-run
 adsctl meta ads creative set AD_ID --creative CREATIVE_ID --profile "$WRITE_PROFILE" --account "$ACCOUNT" --dry-run
+adsctl meta ads text set AD_ID --name 'Creative v2' --primary-text 'Option 1' --primary-text 'Option 2' --headline 'Headline 1' --headline 'Headline 2' --profile "$WRITE_PROFILE" --account "$ACCOUNT" --dry-run
 adsctl meta campaigns create --name 'Website traffic' --objective OUTCOME_TRAFFIC --special-ad-categories NONE --profile "$WRITE_PROFILE" --account "$ACCOUNT" --dry-run
 ```
 
@@ -23,9 +24,10 @@ For structured changes, write native JSON using supported schema fields:
 adsctl meta schema get adsets --operation create
 adsctl meta adsets validate --operation create --file adset.json --profile "$WRITE_PROFILE" --account "$ACCOUNT"
 adsctl meta adsets create --file adset.json --profile "$WRITE_PROFILE" --account "$ACCOUNT" --dry-run
+adsctl meta creatives create --file creative.json --primary-text 'Option 1' --primary-text 'Option 2' --headline 'Headline 1' --profile "$WRITE_PROFILE" --account "$ACCOUNT" --dry-run
 ```
 
-`--file -` accepts stdin. Do not mix payload files with scalar write flags. Unknown write fields are rejected; full arbitrary Graph payloads are not supported. Validation checks local schema and account/parent access; it does not call Meta validate-only or prove provider acceptance. Nested targeting/creative conditions can still fail remotely. Ads reference an existing creative ID; embedded creative creation is unsupported.
+`--file -` accepts stdin. Do not mix payload files with scalar write flags, except repeatable `--primary-text` and `--headline` (1 to 5 options each) on `creatives create` and `creatives validate`, which populate `asset_feed_spec.bodies`, `asset_feed_spec.titles`, and `optimization_type: DEGREES_OF_FREEDOM` while removing conflicting single-text `message`/`name`/`title` fields from `object_story_spec.link_data` or `object_story_spec.video_data`. Because accepted Meta creatives are immutable, `adsctl meta ads text set ID` reads the ad's current creative, clones its `object_story_spec` and `url_tags` with the new `--primary-text` / `--headline` options into a new creative, and updates the ad's `creative` reference. Launch manifest `creatives` nodes also accept `primary_texts` and `headlines` lists (1 to 5 options each). Unknown write fields are rejected; full arbitrary Graph payloads are not supported. Validation checks local schema and account/parent access; it does not call Meta validate-only or prove provider acceptance. Nested targeting/creative conditions can still fail remotely. Ads reference an existing creative ID; embedded creative creation is unsupported.
 
 When executing, remove `--dry-run` only within the authorized scope. Read the receipt and observed fields. `applied_unverified` has a known remote ID: read and verify it, do not create it again. `unknown` means the provider may have accepted the mutation; do not retry a create/upload/delete blindly. Names are not identity or deduplication keys. An `ACTIVE` response confirms configuration, not delivery.
 
