@@ -205,8 +205,9 @@ func Decode(b []byte) (map[string]any, error) {
 
 // ApplyTextOptions configures 1 to 5 primary text options (asset_feed_spec.bodies)
 // and/or 1 to 5 headline options (asset_feed_spec.titles) on a creative payload,
-// normalizing object_story_spec.link_data and object_story_spec.video_data so
-// Meta does not reject conflicting single-text and multi-text fields.
+// migrating single-media link_data/video_data fields into a complete REGULAR
+// asset_feed_spec and opting in to degrees_of_freedom_spec text_optimizations so
+// Meta Ads Manager UI displays all text option boxes.
 func ApplyTextOptions(p map[string]any, primaryTexts, headlines []string) error {
 	if len(primaryTexts) > 5 || len(headlines) > 5 {
 		return output.Fail("VALIDATION", "Primary text and headline options must be 1 to 5 non-empty strings.", 5)
@@ -232,25 +233,76 @@ func ApplyTextOptions(p map[string]any, primaryTexts, headlines []string) error 
 		feed["titles"] = existingTitles
 	}
 	if story, ok := p["object_story_spec"].(map[string]any); ok {
-		for _, spec := range []struct {
-			key, bodyField, titleField string
-		}{
-			{"link_data", "message", "name"},
-			{"video_data", "message", "title"},
-		} {
-			if data, ok := story[spec.key].(map[string]any); ok {
-				if len(primaryTexts) == 0 && feed["bodies"] == nil {
-					if msg, ok := data[spec.bodyField].(string); ok && strings.TrimSpace(msg) != "" {
-						feed["bodies"] = []any{map[string]any{"text": msg}}
-					}
+		if data, ok := story["link_data"].(map[string]any); ok {
+			if len(primaryTexts) == 0 && feed["bodies"] == nil {
+				if msg, ok := data["message"].(string); ok && strings.TrimSpace(msg) != "" {
+					feed["bodies"] = []any{map[string]any{"text": msg}}
 				}
-				if len(headlines) == 0 && feed["titles"] == nil {
-					if title, ok := data[spec.titleField].(string); ok && strings.TrimSpace(title) != "" {
-						feed["titles"] = []any{map[string]any{"text": title}}
-					}
+			}
+			if len(headlines) == 0 && feed["titles"] == nil {
+				if title, ok := data["name"].(string); ok && strings.TrimSpace(title) != "" {
+					feed["titles"] = []any{map[string]any{"text": title}}
 				}
-				delete(data, spec.bodyField)
-				delete(data, spec.titleField)
+			}
+			if feed["images"] == nil {
+				if hash, ok := data["image_hash"].(string); ok && strings.TrimSpace(hash) != "" {
+					feed["images"] = []any{map[string]any{"hash": hash}}
+				}
+			}
+			if feed["ad_formats"] == nil && feed["images"] != nil {
+				feed["ad_formats"] = []any{"SINGLE_IMAGE"}
+			}
+			linkURL, ctaType := extractLinkAndCTA(data)
+			if feed["link_urls"] == nil && linkURL != "" {
+				feed["link_urls"] = []any{map[string]any{"website_url": linkURL}}
+			}
+			if feed["call_to_action_types"] == nil && ctaType != "" {
+				feed["call_to_action_types"] = []any{ctaType}
+			}
+			if feed["images"] != nil && feed["link_urls"] != nil {
+				delete(story, "link_data")
+			} else {
+				delete(data, "message")
+				delete(data, "name")
+			}
+		}
+		if data, ok := story["video_data"].(map[string]any); ok {
+			if len(primaryTexts) == 0 && feed["bodies"] == nil {
+				if msg, ok := data["message"].(string); ok && strings.TrimSpace(msg) != "" {
+					feed["bodies"] = []any{map[string]any{"text": msg}}
+				}
+			}
+			if len(headlines) == 0 && feed["titles"] == nil {
+				if title, ok := data["title"].(string); ok && strings.TrimSpace(title) != "" {
+					feed["titles"] = []any{map[string]any{"text": title}}
+				}
+			}
+			if feed["videos"] == nil {
+				if vid := strings.TrimSpace(fmt.Sprint(data["video_id"])); vid != "" && vid != "<nil>" {
+					vItem := map[string]any{"video_id": vid}
+					if th, ok := data["image_hash"].(string); ok && strings.TrimSpace(th) != "" {
+						vItem["thumbnail_hash"] = th
+					} else if tu, ok := data["image_url"].(string); ok && strings.TrimSpace(tu) != "" {
+						vItem["thumbnail_url"] = tu
+					}
+					feed["videos"] = []any{vItem}
+				}
+			}
+			if feed["ad_formats"] == nil && feed["videos"] != nil {
+				feed["ad_formats"] = []any{"SINGLE_VIDEO"}
+			}
+			linkURL, ctaType := extractLinkAndCTA(data)
+			if feed["link_urls"] == nil && linkURL != "" {
+				feed["link_urls"] = []any{map[string]any{"website_url": linkURL}}
+			}
+			if feed["call_to_action_types"] == nil && ctaType != "" {
+				feed["call_to_action_types"] = []any{ctaType}
+			}
+			if feed["videos"] != nil && feed["link_urls"] != nil {
+				delete(story, "video_data")
+			} else {
+				delete(data, "message")
+				delete(data, "title")
 			}
 		}
 	}
@@ -268,18 +320,55 @@ func ApplyTextOptions(p map[string]any, primaryTexts, headlines []string) error 
 		}
 		feed["titles"] = titles
 	}
-	if feed["optimization_type"] == nil || feed["optimization_type"] == "" {
-		feed["optimization_type"] = "DEGREES_OF_FREEDOM"
+	hasStoryMedia := false
+	if story, ok := p["object_story_spec"].(map[string]any); ok {
+		hasStoryMedia = story["link_data"] != nil || story["video_data"] != nil
+	}
+	if !hasStoryMedia && (feed["images"] != nil || feed["videos"] != nil) {
+		feed["optimization_type"] = "REGULAR"
+	} else if feed["optimization_type"] == nil || feed["optimization_type"] == "" {
+		feed["optimization_type"] = "REGULAR"
 	}
 	p["asset_feed_spec"] = feed
+	dof, _ := p["degrees_of_freedom_spec"].(map[string]any)
+	if dof == nil {
+		dof = map[string]any{}
+	}
+	cfs, _ := dof["creative_features_spec"].(map[string]any)
+	if cfs == nil {
+		cfs = map[string]any{}
+	}
+	if cfs["text_optimizations"] == nil {
+		cfs["text_optimizations"] = map[string]any{"enroll_status": "OPT_IN"}
+	}
+	dof["creative_features_spec"] = cfs
+	p["degrees_of_freedom_spec"] = dof
 	delete(p, "body")
 	delete(p, "title")
 	return nil
 }
 
+func extractLinkAndCTA(data map[string]any) (string, string) {
+	linkURL, _ := data["link"].(string)
+	linkURL = strings.TrimSpace(linkURL)
+	ctaType := ""
+	if cta, ok := data["call_to_action"].(map[string]any); ok {
+		if t, ok := cta["type"].(string); ok {
+			ctaType = strings.TrimSpace(t)
+		}
+		if val, ok := cta["value"].(map[string]any); ok && linkURL == "" {
+			if l, ok := val["link"].(string); ok {
+				linkURL = strings.TrimSpace(l)
+			}
+		}
+	}
+	return linkURL, ctaType
+}
+
 // CloneCreativeForTextOptions builds a new creative create payload from an
-// observed creative object, preserving object_story_spec, url_tags, and any
-// unreplaced text options while applying the new primaryTexts and headlines.
+// observed creative object, preserving object_story_spec, url_tags, media/link
+// specifications, and any unreplaced text options while applying the new
+// primaryTexts and headlines.
 func CloneCreativeForTextOptions(observed map[string]any, name string, primaryTexts, headlines []string) (map[string]any, error) {
 	if len(primaryTexts) == 0 && len(headlines) == 0 {
 		return nil, output.Fail("USAGE", "Provide at least one --primary-text or --headline option.", 2)
@@ -319,6 +408,21 @@ func CloneCreativeForTextOptions(observed map[string]any, name string, primaryTe
 		if titles := normalizeTextItems(afs["titles"]); len(titles) > 0 {
 			cleanAFS["titles"] = titles
 		}
+		if images := normalizeObjectItems(afs["images"], "hash", "url"); len(images) > 0 {
+			cleanAFS["images"] = images
+		}
+		if videos := normalizeObjectItems(afs["videos"], "video_id", "thumbnail_hash", "thumbnail_url"); len(videos) > 0 {
+			cleanAFS["videos"] = videos
+		}
+		if links := normalizeObjectItems(afs["link_urls"], "website_url", "display_url", "deeplink_url"); len(links) > 0 {
+			cleanAFS["link_urls"] = links
+		}
+		if formats := normalizeStringList(afs["ad_formats"]); len(formats) > 0 {
+			cleanAFS["ad_formats"] = formats
+		}
+		if ctas := normalizeStringList(afs["call_to_action_types"]); len(ctas) > 0 {
+			cleanAFS["call_to_action_types"] = ctas
+		}
 		if opt, ok := afs["optimization_type"].(string); ok && strings.TrimSpace(opt) != "" {
 			cleanAFS["optimization_type"] = opt
 		}
@@ -336,6 +440,10 @@ func CloneCreativeForTextOptions(observed map[string]any, name string, primaryTe
 }
 
 func normalizeTextItems(v any) []any {
+	return normalizeObjectItems(v, "text")
+}
+
+func normalizeObjectItems(v any, allowedKeys ...string) []any {
 	items, ok := v.([]any)
 	if !ok || len(items) == 0 {
 		return nil
@@ -346,8 +454,28 @@ func normalizeTextItems(v any) []any {
 		if !ok {
 			continue
 		}
-		if t, ok := m["text"].(string); ok && strings.TrimSpace(t) != "" {
-			out = append(out, map[string]any{"text": t})
+		clean := map[string]any{}
+		for _, k := range allowedKeys {
+			if val := strings.TrimSpace(fmt.Sprint(m[k])); m[k] != nil && val != "" && val != "<nil>" {
+				clean[k] = val
+			}
+		}
+		if len(clean) > 0 {
+			out = append(out, clean)
+		}
+	}
+	return out
+}
+
+func normalizeStringList(v any) []any {
+	items, ok := v.([]any)
+	if !ok || len(items) == 0 {
+		return nil
+	}
+	out := make([]any, 0, len(items))
+	for _, raw := range items {
+		if s, ok := raw.(string); ok && strings.TrimSpace(s) != "" {
+			out = append(out, strings.TrimSpace(s))
 		}
 	}
 	return out

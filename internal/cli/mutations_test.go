@@ -228,9 +228,9 @@ func TestAdsTextSetClonesCreativeAndUpdatesAd(t *testing.T) {
 		case "/v25.0/456":
 			_, _ = fmt.Fprintf(w, `{"id":"456","account_id":"123","name":"Ad 1","status":"ACTIVE","effective_status":"ACTIVE","creative":{"id":%q}}`, currentCreativeID)
 		case "/v25.0/300":
-			_, _ = fmt.Fprint(w, `{"id":"300","account_id":"123","name":"Creative v1","object_story_spec":{"page_id":"10","link_data":{"image_hash":"h1","link":"https://example.com","message":"old","name":"old title"}},"url_tags":"utm_source=ig"}`)
+			_, _ = fmt.Fprint(w, `{"id":"300","account_id":"123","name":"Creative v1","object_story_spec":{"page_id":"10","link_data":{"image_hash":"h1","link":"https://example.com","message":"old","name":"old title","call_to_action":{"type":"LEARN_MORE","value":{"link":"https://example.com"}}}},"url_tags":"utm_source=ig"}`)
 		case "/v25.0/301":
-			_, _ = fmt.Fprint(w, `{"id":"301","account_id":"123","name":"Creative v2","object_story_spec":{"page_id":"10","link_data":{"image_hash":"h1","link":"https://example.com"}},"url_tags":"utm_source=ig","asset_feed_spec":{"optimization_type":"DEGREES_OF_FREEDOM","bodies":[{"id":"1","text":"Opt 4"},{"id":"2","text":"Opt 1"}],"titles":[{"id":"3","text":"Head 1"}]}}`)
+			_, _ = fmt.Fprint(w, `{"id":"301","account_id":"123","name":"Creative v2","object_story_spec":{"page_id":"10"},"url_tags":"utm_source=ig","degrees_of_freedom_spec":{"creative_features_spec":{"text_optimizations":{"enroll_status":"OPT_IN"}}},"asset_feed_spec":{"ad_formats":["SINGLE_IMAGE"],"optimization_type":"REGULAR","images":[{"hash":"h1"}],"link_urls":[{"website_url":"https://example.com"}],"call_to_action_types":["LEARN_MORE"],"bodies":[{"id":"1","text":"Opt 4"},{"id":"2","text":"Opt 1"}],"titles":[{"id":"3","text":"Head 1"}]}}`)
 		}
 	})
 	err := executeTest(a, []string{
