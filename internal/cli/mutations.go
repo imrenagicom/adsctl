@@ -413,7 +413,7 @@ func (a *App) addAdText(g *cobra.Command) {
 		if err = verify(r, "creatives", creativeID); err != nil {
 			return err
 		}
-		creativeObj, err := r.Client.Request(r.Ctx, "GET", creativeID, url.Values{"fields": {"id,name,object_story_spec,asset_feed_spec,url_tags,degrees_of_freedom_spec"}})
+		creativeObj, err := r.Client.Request(r.Ctx, "GET", creativeID, url.Values{"fields": {"id,name,object_story_spec,asset_feed_spec,url_tags"}})
 		if err != nil {
 			return err
 		}

@@ -311,9 +311,6 @@ func CloneCreativeForTextOptions(observed map[string]any, name string, primaryTe
 	if ut, ok := cloned["url_tags"].(string); ok && strings.TrimSpace(ut) != "" {
 		out["url_tags"] = ut
 	}
-	if d, ok := cloned["degrees_of_freedom_spec"].(map[string]any); ok && len(d) > 0 {
-		out["degrees_of_freedom_spec"] = d
-	}
 	if afs, ok := cloned["asset_feed_spec"].(map[string]any); ok {
 		cleanAFS := map[string]any{}
 		if bodies := normalizeTextItems(afs["bodies"]); len(bodies) > 0 {
