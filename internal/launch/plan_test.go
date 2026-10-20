@@ -117,3 +117,65 @@ func TestPlanSupportsCreativePrimaryTextsAndHeadlines(t *testing.T) {
 		t.Fatalf("unexpected asset_feed_spec in compiled payload: %v", payload)
 	}
 }
+
+func TestPlanSupportsAdvantageBudgetAndPlacementsAndRejectsAdsetBudgetConflict(t *testing.T) {
+	advManifest := `version: 1
+kind: meta-launch
+name: advantage-launch
+campaigns:
+  - key: main
+    advantage_budget: true
+    payload:
+      name: Sales Campaign
+      objective: OUTCOME_SALES
+      daily_budget: 100000
+      special_ad_categories: []
+adsets:
+  - key: audience
+    campaign_ref: main
+    advantage_placements: true
+    payload:
+      name: ID 18+ Audience
+      billing_event: IMPRESSIONS
+      optimization_goal: OFFSITE_CONVERSIONS
+      targeting:
+        geo_locations:
+          countries: [ID]
+        publisher_platforms: [instagram]
+        instagram_positions: [reels, story]
+creatives:
+  - key: post
+    payload:
+      name: Existing post
+      object_story_id: '123_456'
+ads:
+  - key: ad
+    adset_ref: audience
+    creative_ref: post
+    payload:
+      name: Ad
+`
+	p, err := Compile([]byte(advManifest), t.TempDir(), Scope{Account: "act_123"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	campStep, _ := p.Step("campaigns.main")
+	campPayload, err := Payload(campStep, map[string]string{})
+	if err != nil || campPayload["bid_strategy"] != "LOWEST_COST_WITHOUT_CAP" || campPayload["is_adset_budget_sharing_enabled"] != false {
+		t.Fatalf("unexpected campaign payload: %v %v", err, campPayload)
+	}
+	adsetStep, _ := p.Step("adsets.audience")
+	adsetPayload, err := Payload(adsetStep, map[string]string{"campaigns.main": "777"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	targ := adsetPayload["targeting"].(map[string]any)
+	if targ["publisher_platforms"] != nil || targ["instagram_positions"] != nil {
+		t.Fatalf("expected manual placements stripped for advantage_placements: %v", targ)
+	}
+	// Conflicting ad-set daily_budget when parent campaign uses Advantage+ budget must fail.
+	conflict := strings.Replace(advManifest, "      billing_event: IMPRESSIONS", "      daily_budget: 50000\n      billing_event: IMPRESSIONS", 1)
+	if _, err := Compile([]byte(conflict), t.TempDir(), Scope{Account: "act_123"}); err == nil {
+		t.Fatal("expected adset daily_budget under Advantage+ campaign budget to fail")
+	}
+}

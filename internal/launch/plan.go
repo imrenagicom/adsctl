@@ -34,15 +34,17 @@ type Asset struct {
 	File string `yaml:"file" json:"file"`
 }
 type Node struct {
-	Key          string         `yaml:"key" json:"key"`
-	Payload      map[string]any `yaml:"payload" json:"payload"`
-	CampaignRef  string         `yaml:"campaign_ref,omitempty" json:"campaign_ref,omitempty"`
-	AdsetRef     string         `yaml:"adset_ref,omitempty" json:"adset_ref,omitempty"`
-	CreativeRef  string         `yaml:"creative_ref,omitempty" json:"creative_ref,omitempty"`
-	ImageRef     string         `yaml:"image_ref,omitempty" json:"image_ref,omitempty"`
-	VideoRef     string         `yaml:"video_ref,omitempty" json:"video_ref,omitempty"`
-	PrimaryTexts []string       `yaml:"primary_texts,omitempty" json:"primary_texts,omitempty"`
-	Headlines    []string       `yaml:"headlines,omitempty" json:"headlines,omitempty"`
+	Key                 string         `yaml:"key" json:"key"`
+	Payload             map[string]any `yaml:"payload" json:"payload"`
+	CampaignRef         string         `yaml:"campaign_ref,omitempty" json:"campaign_ref,omitempty"`
+	AdsetRef            string         `yaml:"adset_ref,omitempty" json:"adset_ref,omitempty"`
+	CreativeRef         string         `yaml:"creative_ref,omitempty" json:"creative_ref,omitempty"`
+	ImageRef            string         `yaml:"image_ref,omitempty" json:"image_ref,omitempty"`
+	VideoRef            string         `yaml:"video_ref,omitempty" json:"video_ref,omitempty"`
+	AdvantageBudget     bool           `yaml:"advantage_budget,omitempty" json:"advantage_budget,omitempty"`
+	AdvantagePlacements bool           `yaml:"advantage_placements,omitempty" json:"advantage_placements,omitempty"`
+	PrimaryTexts        []string       `yaml:"primary_texts,omitempty" json:"primary_texts,omitempty"`
+	Headlines           []string       `yaml:"headlines,omitempty" json:"headlines,omitempty"`
 }
 type Scope struct {
 	Profile    string `json:"profile"`
@@ -111,6 +113,22 @@ func Compile(b []byte, base string, scope Scope) (Plan, error) {
 			if err != nil {
 				return Plan{}, err
 			}
+			if n.AdvantageBudget {
+				if pair.resource != "campaigns" {
+					return Plan{}, output.Fail("VALIDATION", "advantage_budget is only valid on campaigns.", 5)
+				}
+				if err := schema.ApplyAdvantageBudget(n.Payload, "", "", ""); err != nil {
+					return Plan{}, err
+				}
+			}
+			if n.AdvantagePlacements {
+				if pair.resource != "adsets" {
+					return Plan{}, output.Fail("VALIDATION", "advantage_placements is only valid on adsets.", 5)
+				}
+				if err := schema.ApplyAdvantagePlacements(n.Payload); err != nil {
+					return Plan{}, err
+				}
+			}
 			if len(n.PrimaryTexts) > 0 || len(n.Headlines) > 0 {
 				if pair.resource != "creatives" {
 					return Plan{}, output.Fail("VALIDATION", "primary_texts and headlines are only valid on creatives.", 5)
@@ -160,6 +178,7 @@ func (p Plan) Validate(checkDigest bool) error {
 	}
 	known := map[string]string{}
 	ids := map[string]string{}
+	campaignOwnsBudget := map[string]bool{}
 	order := map[string]int{"images": 0, "videos": 0, "campaigns": 1, "adsets": 2, "creatives": 3, "ads": 4}
 	last := 0
 	for _, s := range p.Steps {
@@ -184,7 +203,7 @@ func (p Plan) Validate(checkDigest bool) error {
 			return output.Fail("VALIDATION", "video_ref must name a video.", 5)
 		}
 		if s.Resource == "images" || s.Resource == "videos" {
-			if s.File == "" || !filepath.IsAbs(s.File) || len(s.Hash) != 64 || s.Node.Payload != nil || len(References(s.Node)) != 0 {
+			if s.File == "" || !filepath.IsAbs(s.File) || len(s.Hash) != 64 || s.Node.Payload != nil || len(References(s.Node)) != 0 || s.Node.AdvantageBudget || s.Node.AdvantagePlacements {
 				return output.Fail("VALIDATION", "Invalid media plan step.", 5)
 			}
 		} else {
@@ -194,7 +213,7 @@ func (p Plan) Validate(checkDigest bool) error {
 			if s.Resource != "creatives" && s.Node.Payload["status"] != "PAUSED" {
 				return output.Fail("VALIDATION", "Launch creates must remain PAUSED; activate the run separately.", 5)
 			}
-			if s.Node.CampaignRef != "" && s.Resource != "adsets" || s.Node.AdsetRef != "" && s.Resource != "ads" || s.Node.CreativeRef != "" && s.Resource != "ads" || (s.Node.ImageRef != "" || s.Node.VideoRef != "" || len(s.Node.PrimaryTexts) > 0 || len(s.Node.Headlines) > 0) && s.Resource != "creatives" {
+			if s.Node.CampaignRef != "" && s.Resource != "adsets" || s.Node.AdsetRef != "" && s.Resource != "ads" || s.Node.CreativeRef != "" && s.Resource != "ads" || s.Node.AdvantageBudget && s.Resource != "campaigns" || s.Node.AdvantagePlacements && s.Resource != "adsets" || (s.Node.ImageRef != "" || s.Node.VideoRef != "" || len(s.Node.PrimaryTexts) > 0 || len(s.Node.Headlines) > 0) && s.Resource != "creatives" {
 				return output.Fail("VALIDATION", "Reference is not valid for this resource.", 5)
 			}
 			payload, err := Payload(s, ids)
@@ -203,6 +222,14 @@ func (p Plan) Validate(checkDigest bool) error {
 			}
 			if err = schema.Validate(s.Resource, "create", payload); err != nil {
 				return err
+			}
+			if s.Resource == "campaigns" && (s.Node.AdvantageBudget || payload["daily_budget"] != nil || payload["lifetime_budget"] != nil) {
+				campaignOwnsBudget[s.Key] = true
+			}
+			if s.Resource == "adsets" && s.Node.CampaignRef != "" && campaignOwnsBudget["campaigns."+s.Node.CampaignRef] {
+				if payload["daily_budget"] != nil || payload["lifetime_budget"] != nil {
+					return output.Fail("VALIDATION", "Ad set cannot set daily_budget or lifetime_budget when parent campaign uses Advantage+ campaign budget.", 5)
+				}
 			}
 		}
 		known[s.Key] = s.Resource
@@ -229,6 +256,16 @@ func Payload(s Step, ids map[string]string) (map[string]any, error) {
 		return nil, err
 	}
 	n := s.Node
+	if n.AdvantageBudget {
+		if err := schema.ApplyAdvantageBudget(p, "", "", ""); err != nil {
+			return nil, err
+		}
+	}
+	if n.AdvantagePlacements {
+		if err := schema.ApplyAdvantagePlacements(p); err != nil {
+			return nil, err
+		}
+	}
 	if len(n.PrimaryTexts) > 0 || len(n.Headlines) > 0 {
 		if err := schema.ApplyTextOptions(p, n.PrimaryTexts, n.Headlines); err != nil {
 			return nil, err

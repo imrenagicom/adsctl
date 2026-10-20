@@ -50,6 +50,7 @@ func Fields(resource, operation string) map[string]Field {
 			common[k] = "array"
 		}
 		common["is_dynamic_creative"] = "boolean"
+		common["placement_soft_opt_out"] = "boolean"
 		if operation == "create" {
 			common["campaign_id"] = "id"
 		}
@@ -477,6 +478,159 @@ func normalizeStringList(v any) []any {
 		if s, ok := raw.(string); ok && strings.TrimSpace(s) != "" {
 			out = append(out, strings.TrimSpace(s))
 		}
+	}
+	return out
+}
+
+// ManualPlacementKeys lists the targeting fields that restrict an ad set to
+// manual placements. Omitting all of these keys enables Meta Advantage+
+// placements across eligible platforms and positions.
+var ManualPlacementKeys = []string{
+	"publisher_platforms",
+	"facebook_positions",
+	"instagram_positions",
+	"messenger_positions",
+	"audience_network_positions",
+	"threads_positions",
+}
+
+// ApplyAdvantageBudget configures Meta Advantage+ campaign budget on a campaign
+// payload, setting daily_budget or lifetime_budget (when supplied), defaulting
+// bid_strategy to LOWEST_COST_WITHOUT_CAP, and ensuring
+// is_adset_budget_sharing_enabled is false.
+func ApplyAdvantageBudget(p map[string]any, dailyBudget, lifetimeBudget, bidStrategy string) error {
+	if p == nil {
+		return output.Fail("VALIDATION", "Campaign payload is required.", 5)
+	}
+	if dailyBudget != "" && lifetimeBudget != "" {
+		return output.Fail("VALIDATION", "Choose one budget type.", 5)
+	}
+	if dailyBudget != "" {
+		if p["lifetime_budget"] != nil {
+			return output.Fail("VALIDATION", "Choose one budget type.", 5)
+		}
+		p["daily_budget"] = dailyBudget
+	}
+	if lifetimeBudget != "" {
+		if p["daily_budget"] != nil {
+			return output.Fail("VALIDATION", "Choose one budget type.", 5)
+		}
+		p["lifetime_budget"] = lifetimeBudget
+	}
+	if p["daily_budget"] != nil && p["lifetime_budget"] != nil {
+		return output.Fail("VALIDATION", "Choose one budget type.", 5)
+	}
+	if !positiveNumberString(p["daily_budget"]) && !positiveNumberString(p["lifetime_budget"]) {
+		return output.Fail("VALIDATION", "Advantage+ campaign budget requires a positive daily_budget or lifetime_budget.", 5)
+	}
+	if sharing, ok := p["is_adset_budget_sharing_enabled"].(bool); ok && sharing {
+		return output.Fail("VALIDATION", "Advantage+ campaign budget cannot enable is_adset_budget_sharing_enabled.", 5)
+	}
+	p["is_adset_budget_sharing_enabled"] = false
+	if strings.TrimSpace(bidStrategy) != "" {
+		p["bid_strategy"] = strings.TrimSpace(bidStrategy)
+	} else if s, ok := p["bid_strategy"].(string); !ok || strings.TrimSpace(s) == "" {
+		p["bid_strategy"] = "LOWEST_COST_WITHOUT_CAP"
+	}
+	return nil
+}
+
+// ApplyAdvantagePlacements configures Meta Advantage+ placements on an ad set
+// payload by removing manual placement restriction arrays from targeting while
+// preserving all audience targeting fields.
+func ApplyAdvantagePlacements(p map[string]any) error {
+	if p == nil {
+		return output.Fail("VALIDATION", "Ad set payload is required.", 5)
+	}
+	targeting, ok := p["targeting"].(map[string]any)
+	if !ok || len(targeting) == 0 {
+		return output.Fail("VALIDATION", "Advantage+ placements requires a targeting object on the ad set payload.", 5)
+	}
+	for _, k := range ManualPlacementKeys {
+		delete(targeting, k)
+	}
+	if len(targeting) == 0 {
+		return output.Fail("VALIDATION", "Ad set targeting must retain audience criteria (such as geo_locations) after clearing manual placements.", 5)
+	}
+	p["targeting"] = targeting
+	return nil
+}
+
+// CloneTargetingForPlacements clones an observed ad set targeting object and
+// either strips manual placement keys for Advantage+ placements or replaces
+// them with explicit manual publisher_platforms and position lists.
+func CloneTargetingForPlacements(observedTargeting map[string]any, advantagePlus bool, placements map[string][]string) (map[string]any, error) {
+	if len(observedTargeting) == 0 {
+		return nil, output.Fail("VALIDATION", "Existing ad set does not have a readable targeting object.", 5)
+	}
+	raw, err := json.Marshal(observedTargeting)
+	if err != nil {
+		return nil, output.Fail("VALIDATION", "Cannot serialize existing ad set targeting.", 5)
+	}
+	cloned, err := Decode(raw)
+	if err != nil {
+		return nil, err
+	}
+	if advantagePlus {
+		for _, list := range placements {
+			if len(list) > 0 {
+				return nil, output.Fail("USAGE", "Cannot combine --advantage-plus with manual placement flags.", 2)
+			}
+		}
+		for _, k := range ManualPlacementKeys {
+			delete(cloned, k)
+		}
+		if len(cloned) == 0 {
+			return nil, output.Fail("VALIDATION", "Targeting cannot be empty after enabling Advantage+ placements.", 5)
+		}
+		return cloned, nil
+	}
+	pubs := cleanStrings(placements["publisher_platforms"])
+	if len(pubs) == 0 {
+		return nil, output.Fail("USAGE", "Provide --advantage-plus or non-empty --publisher-platforms.", 2)
+	}
+	for _, k := range ManualPlacementKeys {
+		delete(cloned, k)
+	}
+	cloned["publisher_platforms"] = toAnySlice(pubs)
+	for _, k := range []string{"facebook_positions", "instagram_positions", "messenger_positions", "audience_network_positions", "threads_positions"} {
+		if vals := cleanStrings(placements[k]); len(vals) > 0 {
+			cloned[k] = toAnySlice(vals)
+		}
+	}
+	return cloned, nil
+}
+
+func positiveNumberString(v any) bool {
+	if v == nil {
+		return false
+	}
+	s := strings.TrimSpace(fmt.Sprint(v))
+	if s == "" || s == "0" || s == "<nil>" {
+		return false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func cleanStrings(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if trimmed := strings.TrimSpace(s); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
+func toAnySlice(in []string) []any {
+	out := make([]any, len(in))
+	for i, s := range in {
+		out[i] = s
 	}
 	return out
 }
