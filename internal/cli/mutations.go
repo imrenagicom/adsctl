@@ -14,6 +14,8 @@ import (
 
 type mutationFlags struct {
 	File, Name, Objective, Categories, Adset, Creative, Status string
+	DailyBudget, LifetimeBudget, BidStrategy                   string
+	AdvantageBudget, AdvantagePlacements                       bool
 	PrimaryTexts, Headlines                                    []string
 	Dry                                                        bool
 }
@@ -40,6 +42,15 @@ func (a *App) addMutations(g *cobra.Command, resource string) {
 		cmd.Flags().BoolVar(&f.Dry, "dry-run", false, "Return plan without advertising writes")
 		if op == "create" || op == "update" || op == "validate" {
 			cmd.Flags().StringVar(&f.File, "file", "", "Native JSON payload path or - for stdin")
+			if resource == "campaigns" {
+				cmd.Flags().BoolVar(&f.AdvantageBudget, "advantage-budget", false, "Enable Advantage+ campaign budget (defaults bid_strategy to LOWEST_COST_WITHOUT_CAP)")
+				cmd.Flags().StringVar(&f.DailyBudget, "daily-budget-minor", "", "Campaign daily budget in native minor units")
+				cmd.Flags().StringVar(&f.LifetimeBudget, "lifetime-budget-minor", "", "Campaign lifetime budget in native minor units")
+				cmd.Flags().StringVar(&f.BidStrategy, "bid-strategy", "", "Native campaign bid strategy")
+			}
+			if resource == "adsets" {
+				cmd.Flags().BoolVar(&f.AdvantagePlacements, "advantage-placements", false, "Enable Advantage+ placements by omitting manual platform/position restrictions from targeting")
+			}
 			if resource == "creatives" && (op == "create" || op == "validate") {
 				cmd.Flags().StringArrayVar(&f.PrimaryTexts, "primary-text", nil, "Primary text option (repeatable, 1 to 5 options)")
 				cmd.Flags().StringArrayVar(&f.Headlines, "headline", nil, "Headline option (repeatable, 1 to 5 options)")
@@ -120,6 +131,9 @@ func (a *App) addMutations(g *cobra.Command, resource string) {
 	if resource == "campaigns" || resource == "adsets" {
 		a.addBudget(g, resource)
 	}
+	if resource == "adsets" {
+		a.addAdsetPlacements(g)
+	}
 	if resource == "ads" {
 		g2 := group("creative", "Change an ad's creative reference")
 		g.AddCommand(g2)
@@ -193,6 +207,31 @@ func (a *App) payload(c *cobra.Command, resource, op string, f *mutationFlags) (
 		}
 		if f.Creative != "" {
 			p["creative"] = map[string]any{"creative_id": f.Creative}
+		}
+		if f.DailyBudget != "" {
+			p["daily_budget"] = f.DailyBudget
+		}
+		if f.LifetimeBudget != "" {
+			p["lifetime_budget"] = f.LifetimeBudget
+		}
+		if f.BidStrategy != "" {
+			p["bid_strategy"] = f.BidStrategy
+		}
+	}
+	if f.AdvantageBudget || (f.File != "" && (f.DailyBudget != "" || f.LifetimeBudget != "" || f.BidStrategy != "")) {
+		if resource != "campaigns" {
+			return nil, output.Fail("USAGE", "Advantage+ budget flags are only supported on campaigns.", 2)
+		}
+		if err := schema.ApplyAdvantageBudget(p, f.DailyBudget, f.LifetimeBudget, f.BidStrategy); err != nil {
+			return nil, err
+		}
+	}
+	if f.AdvantagePlacements {
+		if resource != "adsets" {
+			return nil, output.Fail("USAGE", "--advantage-placements is only supported on adsets.", 2)
+		}
+		if err := schema.ApplyAdvantagePlacements(p); err != nil {
+			return nil, err
 		}
 	}
 	if len(f.PrimaryTexts) > 0 || len(f.Headlines) > 0 {
@@ -460,4 +499,89 @@ func (a *App) addAdText(g *cobra.Command) {
 	cmd.Flags().StringVar(&name, "name", "", "Optional name for the newly created creative")
 	cmd.Flags().BoolVar(&dry, "dry-run", false, "Plan without writing")
 	tg.AddCommand(cmd)
+}
+
+func (a *App) addAdsetPlacements(g *cobra.Command) {
+	pg := group("placements", "Configure Advantage+ or manual placements while preserving audience targeting")
+	g.AddCommand(pg)
+	var advantagePlus, dry bool
+	var pubs, igPos, fbPos, msgPos, anPos, softOptOut string
+	cmd := action("set ID", "Switch an ad set between Advantage+ placements and manual placements without losing targeting", "write", func(c *cobra.Command, args []string) error {
+		r, err := a.runtime(c, true, true)
+		if err != nil {
+			return err
+		}
+		defer r.Cancel()
+		if err = verify(r, "adsets", args[0]); err != nil {
+			return err
+		}
+		adsetObj, err := r.Client.Request(r.Ctx, "GET", args[0], url.Values{"fields": {"id,name,targeting"}})
+		if err != nil {
+			return err
+		}
+		observedTargeting, _ := adsetObj.Value["targeting"].(map[string]any)
+		manual := map[string][]string{}
+		for key, raw := range map[string]string{
+			"publisher_platforms":        pubs,
+			"instagram_positions":        igPos,
+			"facebook_positions":         fbPos,
+			"messenger_positions":        msgPos,
+			"audience_network_positions": anPos,
+		} {
+			if strings.TrimSpace(raw) != "" {
+				manual[key] = strings.Split(raw, ",")
+			}
+		}
+		newTargeting, err := schema.CloneTargetingForPlacements(observedTargeting, advantagePlus, manual)
+		if err != nil {
+			return err
+		}
+		payload := map[string]any{"targeting": newTargeting}
+		if strings.TrimSpace(softOptOut) != "" {
+			switch strings.ToLower(strings.TrimSpace(softOptOut)) {
+			case "true":
+				payload["placement_soft_opt_out"] = true
+			case "false":
+				payload["placement_soft_opt_out"] = false
+			default:
+				return output.Fail("USAGE", "--placement-soft-opt-out must be true or false.", 2)
+			}
+		}
+		if err = schema.Validate("adsets", "update", payload); err != nil {
+			return err
+		}
+		receipt, err := mutate(r, "adsets", "update", args[0], payload, dry)
+		receipt["operation"] = "placements.set"
+		if advantagePlus {
+			receipt["placements_mode"] = "advantage_plus"
+		} else {
+			receipt["placements_mode"] = "manual"
+		}
+		if err != nil {
+			return a.partial(c, receipt, err)
+		}
+		if !dry && advantagePlus {
+			if obs, ok := receipt["observed"].(map[string]any); ok {
+				if obsTarg, ok := obs["targeting"].(map[string]any); ok {
+					for _, k := range schema.ManualPlacementKeys {
+						if obsTarg[k] != nil {
+							receipt["state"] = "applied_unverified"
+							return a.partial(c, receipt, output.Fail("APPLIED_UNVERIFIED", "Observed targeting."+k+" was not cleared for Advantage+ placements.", 9))
+						}
+					}
+				}
+			}
+		}
+		return a.emit(c, receipt)
+	})
+	cmd.Args = cobra.ExactArgs(1)
+	cmd.Flags().BoolVar(&advantagePlus, "advantage-plus", false, "Enable Advantage+ placements across all eligible platforms")
+	cmd.Flags().StringVar(&pubs, "publisher-platforms", "", "Comma-separated manual publisher platforms (for example instagram,facebook)")
+	cmd.Flags().StringVar(&igPos, "instagram-positions", "", "Comma-separated manual Instagram positions (for example stream,story,reels)")
+	cmd.Flags().StringVar(&fbPos, "facebook-positions", "", "Comma-separated manual Facebook positions")
+	cmd.Flags().StringVar(&msgPos, "messenger-positions", "", "Comma-separated manual Messenger positions")
+	cmd.Flags().StringVar(&anPos, "audience-network-positions", "", "Comma-separated manual Audience Network positions")
+	cmd.Flags().StringVar(&softOptOut, "placement-soft-opt-out", "", "Optional true or false for placement_soft_opt_out")
+	cmd.Flags().BoolVar(&dry, "dry-run", false, "Plan without writing")
+	pg.AddCommand(cmd)
 }

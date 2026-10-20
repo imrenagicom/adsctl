@@ -246,3 +246,64 @@ func TestAdsTextSetClonesCreativeAndUpdatesAd(t *testing.T) {
 		t.Fatal(err, posts, out.String())
 	}
 }
+
+func TestCampaignAdvantageBudgetAndAdsetPlacementsSet(t *testing.T) {
+	posts := 0
+	a, out, _, path := testApp(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "POST" {
+			posts++
+			if err := r.ParseForm(); err != nil {
+				t.Error(err)
+			}
+			switch r.URL.Path {
+			case "/v25.0/act_123/campaigns":
+				if r.Form.Get("daily_budget") != "100000" || r.Form.Get("bid_strategy") != "LOWEST_COST_WITHOUT_CAP" || r.Form.Get("is_adset_budget_sharing_enabled") != "false" {
+					t.Errorf("unexpected Advantage+ campaign form: %v", r.Form)
+				}
+				_, _ = fmt.Fprint(w, `{"id":"700"}`)
+				return
+			case "/v25.0/800":
+				if bytes.Contains([]byte(r.Form.Get("targeting")), []byte("publisher_platforms")) || !bytes.Contains([]byte(r.Form.Get("targeting")), []byte("6002950107774")) {
+					t.Errorf("expected manual placements stripped and interests preserved: %s", r.Form.Get("targeting"))
+				}
+				_, _ = fmt.Fprint(w, `{"success":true}`)
+				return
+			}
+		}
+		switch r.URL.Path {
+		case "/v25.0/700":
+			_, _ = fmt.Fprint(w, `{"id":"700","account_id":"123","name":"Adv+ Campaign","objective":"OUTCOME_SALES","daily_budget":"100000","bid_strategy":"LOWEST_COST_WITHOUT_CAP","is_adset_budget_sharing_enabled":false,"special_ad_categories":[],"status":"PAUSED","effective_status":"PAUSED"}`)
+		case "/v25.0/800":
+			if posts >= 2 {
+				_, _ = fmt.Fprint(w, `{"id":"800","account_id":"123","name":"Adset 1","status":"ACTIVE","effective_status":"ACTIVE","placement_soft_opt_out":false,"targeting":{"age_min":18,"age_max":65,"geo_locations":{"countries":["ID"]},"flexible_spec":[{"interests":[{"id":"6002950107774","name":"Chinese language"}]}]}}`)
+			} else {
+				_, _ = fmt.Fprint(w, `{"id":"800","account_id":"123","name":"Adset 1","status":"ACTIVE","effective_status":"ACTIVE","targeting":{"age_min":18,"age_max":65,"geo_locations":{"countries":["ID"]},"flexible_spec":[{"interests":[{"id":"6002950107774","name":"Chinese language"}]}],"publisher_platforms":["instagram"],"instagram_positions":["stream","story","reels"]}}`)
+			}
+		}
+	})
+	err := executeTest(a, []string{
+		"--config", path,
+		"meta", "campaigns", "create",
+		"--profile", "test", "--account", "123",
+		"--name", "Adv+ Campaign",
+		"--objective", "OUTCOME_SALES",
+		"--special-ad-categories", "NONE",
+		"--advantage-budget",
+		"--daily-budget-minor", "100000",
+	})
+	if err != nil || posts != 1 || !bytes.Contains(out.Bytes(), []byte(`"state": "verified"`)) {
+		t.Fatal(err, posts, out.String())
+	}
+
+	out.Reset()
+	err = executeTest(a, []string{
+		"--config", path,
+		"meta", "adsets", "placements", "set", "800",
+		"--profile", "test", "--account", "123",
+		"--advantage-plus",
+		"--placement-soft-opt-out", "false",
+	})
+	if err != nil || posts != 2 || !bytes.Contains(out.Bytes(), []byte(`"placements_mode": "advantage_plus"`)) || !bytes.Contains(out.Bytes(), []byte(`"state": "verified"`)) {
+		t.Fatal(err, posts, out.String())
+	}
+}

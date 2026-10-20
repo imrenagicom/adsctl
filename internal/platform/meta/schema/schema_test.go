@@ -216,3 +216,65 @@ func TestApplyTextOptionsAndCloneCreative(t *testing.T) {
 		t.Fatal("expected blank primary text to fail")
 	}
 }
+
+func TestApplyAdvantageBudgetAndPlacements(t *testing.T) {
+	campaign := map[string]any{
+		"name":                  "Sales Campaign",
+		"objective":             "OUTCOME_SALES",
+		"special_ad_categories": []any{},
+	}
+	if err := ApplyAdvantageBudget(campaign, "100000", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if campaign["daily_budget"] != "100000" || campaign["bid_strategy"] != "LOWEST_COST_WITHOUT_CAP" || campaign["is_adset_budget_sharing_enabled"] != false {
+		t.Fatalf("unexpected Advantage+ campaign payload: %v", campaign)
+	}
+	if err := Validate("campaigns", "create", campaign); err != nil {
+		t.Fatal(err)
+	}
+	// Reject Advantage+ campaign budget without a positive budget or with budget sharing enabled.
+	if err := ApplyAdvantageBudget(map[string]any{"name": "No Budget"}, "", "", ""); err == nil {
+		t.Fatal("expected missing budget to fail")
+	}
+	if err := ApplyAdvantageBudget(map[string]any{"daily_budget": "100000", "is_adset_budget_sharing_enabled": true}, "", "", ""); err == nil {
+		t.Fatal("expected is_adset_budget_sharing_enabled=true to fail")
+	}
+
+	adset := map[string]any{
+		"name":                   "ID 18+ Chinese",
+		"campaign_id":            "123",
+		"billing_event":          "IMPRESSIONS",
+		"optimization_goal":      "OFFSITE_CONVERSIONS",
+		"placement_soft_opt_out": false,
+		"targeting": map[string]any{
+			"geo_locations":       map[string]any{"countries": []any{"ID"}},
+			"age_min":             18,
+			"age_max":             65,
+			"publisher_platforms": []any{"instagram"},
+			"instagram_positions": []any{"stream", "story", "reels"},
+		},
+	}
+	if err := ApplyAdvantagePlacements(adset); err != nil {
+		t.Fatal(err)
+	}
+	targ := adset["targeting"].(map[string]any)
+	if targ["publisher_platforms"] != nil || targ["instagram_positions"] != nil || targ["geo_locations"] == nil {
+		t.Fatalf("expected manual placements stripped and audience preserved: %v", targ)
+	}
+	if err := Validate("adsets", "create", adset); err != nil {
+		t.Fatal(err)
+	}
+
+	// CloneTargetingForPlacements switches between manual and Advantage+ placements while preserving audience.
+	manualTarg, err := CloneTargetingForPlacements(targ, false, map[string][]string{
+		"publisher_platforms": {"instagram"},
+		"instagram_positions": {"story", "reels"},
+	})
+	if err != nil || len(manualTarg["publisher_platforms"].([]any)) != 1 || manualTarg["geo_locations"] == nil {
+		t.Fatalf("expected manual placements set and geo_locations preserved: %v %v", err, manualTarg)
+	}
+	advTarg, err := CloneTargetingForPlacements(manualTarg, true, nil)
+	if err != nil || advTarg["publisher_platforms"] != nil || advTarg["instagram_positions"] != nil || advTarg["geo_locations"] == nil {
+		t.Fatalf("expected Advantage+ placements restored: %v %v", err, advTarg)
+	}
+}

@@ -15,20 +15,22 @@ assets:
     file: ./banner.jpg
 campaigns:
   - key: traffic
+    advantage_budget: true
     payload:
       name: Website traffic
       objective: OUTCOME_TRAFFIC
+      daily_budget: 2500
+      bid_strategy: LOWEST_COST_WITHOUT_CAP
       special_ad_categories: []
       status: PAUSED
 adsets:
   - key: audience
     campaign_ref: traffic
+    advantage_placements: true
     payload:
       name: Indonesia traffic
-      daily_budget: 2500
       billing_event: IMPRESSIONS
       optimization_goal: LINK_CLICKS
-      bid_strategy: LOWEST_COST_WITHOUT_CAP
       targeting:
         geo_locations:
           countries: [ID]
