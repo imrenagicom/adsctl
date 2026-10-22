@@ -1,11 +1,13 @@
 ---
 name: adsctl-meta-analyst
-description: "Audit and evaluate Meta advertising campaign performance using adsctl. Run structured diagnostic checks across delivery health, creative hook and video retention, click efficiency, post-click landing page and tracking continuity, placement breakdowns, and conversion economics, then produce evidence-backed recommendations. Use when the user asks how a Meta campaign or ad account is performing, wants a media-buyer audit, asks whether to pause, hold, or scale ads, or needs a diagnostic performance review."
+description: "Audit and evaluate Meta advertising campaign performance using adsctl. Run structured diagnostic checks across delivery health, creative hook and video retention, click efficiency, post-click landing page and tracking continuity, placement breakdowns, and conversion economics, then produce evidence-backed recommendations. Use when the user asks how a Meta campaign or ad account is performing, wants a media-buyer audit, asks whether to pause, hold, or scale ads, or needs a diagnostic performance review. Also use when the user asks why performance changed between two periods."
 ---
 
 # adsctl Meta Analyst
 
 Evaluate live Meta advertising performance like an experienced performance marketing analyst using read-only `adsctl` queries. Treat metrics as a chronological funnel and system diagnostic rather than isolated numbers.
+
+When the question is why a metric changed between two periods (for example "why did CPA rise this week?"), follow [change-investigation.md](references/change-investigation.md) instead of the full audit below. It connects the movement to dated configuration changes, delivery issues, and mix shifts.
 
 ## 1. Establish scope, objective, and campaign maturity
 

@@ -36,7 +36,7 @@ The runner must supply the referenced environment variable or raw-token file. Co
 
 ## Choose the workflow
 
-- Performance queries, comparisons, exports, delivery diagnosis, monitoring, or snapshots: read [reporting.md](references/reporting.md). For a full funnel audit, benchmark evaluation, and media-buyer recommendations on running campaigns, use [`adsctl-meta-analyst`](../adsctl-meta-analyst/SKILL.md).
+- Performance queries, comparisons, exports, delivery diagnosis, monitoring, or snapshots: read [reporting.md](references/reporting.md). For a full funnel audit, benchmark evaluation, and media-buyer recommendations on running campaigns, use [`adsctl-meta-analyst`](../adsctl-meta-analyst/SKILL.md). To explain why performance changed between two periods, use its [change investigation](../adsctl-meta-analyst/references/change-investigation.md).
 - Resource changes, budgets, media, campaign creation, activation, or interrupted launches: read [management.md](references/management.md).
 
 Examples use `$PROFILE`, `$WRITE_PROFILE`, `$ACCOUNT`, and `$STATE_DIR` as placeholders. Resolve these to the intended scope; keep the same private state directory for every operation on a run. A write profile requires explicit `--profile` and `--account` flags. Read profiles can create async report jobs; that effect does not change advertising.

@@ -85,7 +85,16 @@ func action(use, short, effect string, run func(*cobra.Command, []string) error)
 }
 func (a *App) Root() *cobra.Command {
 	root := &cobra.Command{Use: "adsctl", Short: "Manage advertising across platforms with an agent-friendly CLI", SilenceUsage: true, SilenceErrors: true}
-	root.RunE = func(cmd *cobra.Command, _ []string) error { return cmd.Help() }
+	var skills bool
+	root.Args = rootArgs(&skills)
+	root.Example = "  adsctl --skills                  # list bundled agent skills\n  adsctl --skills adsctl           # print one skill as Markdown\n  adsctl commands --platform meta  # list implemented commands"
+	root.RunE = func(cmd *cobra.Command, args []string) error {
+		if skills {
+			return printSkills(a.Out, args)
+		}
+		return cmd.Help()
+	}
+	root.Flags().BoolVar(&skills, "skills", false, "Print bundled agent skills as Markdown; add NAME or NAME/references/FILE for one file")
 	root.PersistentPreRunE = func(_ *cobra.Command, _ []string) error {
 		a.started = true
 		if a.opts.Output != "json" && a.opts.Output != "jsonl" && a.opts.Output != "table" {

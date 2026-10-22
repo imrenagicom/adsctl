@@ -7,7 +7,7 @@ The repository includes three shared agent skills in `skills/`:
 - [`adsctl-meta-analyst`](skills/adsctl-meta-analyst/SKILL.md) for structured Meta campaign performance audits, funnel diagnostics, and media-buyer recommendations;
 - [`adsctl-setup`](skills/adsctl-setup/SKILL.md) for CLI installation, developer apps, user and system-user tokens, asset permissions, secret references, and bounded authentication checks.
 
-All three skills are included in release archives.
+All three skills are included in release archives and embedded in the binary: `adsctl --skills` lists them, `adsctl --skills NAME` prints one skill's `SKILL.md`, and `adsctl --skills NAME/references/FILE` prints a reference file. This works offline without configuration or credentials.
 
 ## Install
 
@@ -146,6 +146,8 @@ Read scope precedence is flags, `ADSCTL_PROFILE`/`ADSCTL_ACCOUNT`, then the conf
 ## Discover and report
 
 ```sh
+adsctl --skills
+adsctl --skills adsctl/references/reporting
 adsctl commands --platform meta --capability read
 adsctl meta schema get campaigns --operation create
 adsctl meta campaigns list --profile client-read --account act_123 --all
@@ -253,7 +255,7 @@ Local state defaults to `~/.adsctl/state`, or `$ADSCTL_HOME/state`; set `--state
 
 ## Agent contract and current limits
 
-Data-producing commands emit a versioned envelope with `ok`, native `data`, scope/query/completeness `meta`, `warnings` and `error`. JSONL uses meta/data/error/end records; results are currently buffered within configured bounds, not streamed while fetching. Tables are generic, lossy and have no ANSI colors. Execution errors use JSON on stderr; partial operations may also emit an `ok:false` receipt on stdout. Help, completion and generated Markdown docs are text.
+Data-producing commands emit a versioned envelope with `ok`, native `data`, scope/query/completeness `meta`, `warnings` and `error`. JSONL uses meta/data/error/end records; results are currently buffered within configured bounds, not streamed while fetching. Tables are generic, lossy and have no ANSI colors. Execution errors use JSON on stderr; partial operations may also emit an `ok:false` receipt on stdout. Help, completion, generated Markdown docs and `--skills` output are text.
 
 Exit codes: 0 success; 1 internal; 2 usage/config; 3 credentials; 4 permission/scope; 5 validation; 6 throttling; 7 timeout; 8 provider/network; 9 incomplete or applied-unverified; 10 unknown mutation outcome; 11 explicit monitoring findings. Unknown mutations are not automatically retried. GET retries are bounded, honor deadlines and pace on exposed usage/Retry-After headers.
 

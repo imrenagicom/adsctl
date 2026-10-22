@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 
@@ -21,6 +22,9 @@ func (a *App) addDiscovery(root, meta *cobra.Command) {
 	docs := action("docs", "Generate agent documentation from implemented commands", "local", func(_ *cobra.Command, _ []string) error {
 		if format != "markdown" {
 			return output.Fail("USAGE", "Docs format must be markdown.", 2)
+		}
+		if _, err := io.WriteString(a.Out, skillsHint); err != nil {
+			return err
 		}
 		for _, row := range commandRows(root, "", "") {
 			m := row.(map[string]any)

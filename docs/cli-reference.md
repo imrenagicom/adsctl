@@ -23,16 +23,20 @@ adsctl commands --platform meta --capability write
 adsctl meta schema get campaigns --operation create
 adsctl meta schema get insights --operation query
 adsctl docs --format markdown
+adsctl --skills
+adsctl --skills adsctl-meta-analyst
+adsctl --skills adsctl/references/reporting
 adsctl completion zsh
 adsctl version
 ```
 
-`commands` emits command paths, arguments, flags, output schema, stage and semantic effect (`local`, `read`, `report-job`, `write`). It lists commands actually compiled into the binary, not the full roadmap. Schema output includes API version, supported fields, enums, examples and known conditional requirements; Meta remains the final validator. `docs` produces a compact agent reference from the same metadata. No remote MCP server is needed for agents that can invoke shell commands.
+`commands` emits command paths, arguments, flags, output schema, stage and semantic effect (`local`, `read`, `report-job`, `write`). It lists commands actually compiled into the binary, not the full roadmap. Schema output includes API version, supported fields, enums, examples and known conditional requirements; Meta remains the final validator. `docs` produces a compact agent reference from the same metadata. `--skills` prints the agent skills bundled in `skills/` as Markdown: without a name it lists each skill with its description and reference files; `--skills NAME` prints that skill's `SKILL.md`, and `--skills NAME/references/FILE` prints a reference. The files are embedded at build time, so output matches the plugin skills and needs no config, credentials or network. Unknown names exit 2 with `SKILL_UNKNOWN`. `docs` output begins with a pointer to `--skills`. No remote MCP server is needed for agents that can invoke shell commands.
 
 ## 2. Complete proposed command tree
 
 ```text
 adsctl
+├── --skills [NAME | NAME/references/FILE]
 ├── version
 ├── commands
 ├── docs
