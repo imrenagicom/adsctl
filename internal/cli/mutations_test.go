@@ -307,3 +307,37 @@ func TestCampaignAdvantageBudgetAndAdsetPlacementsSet(t *testing.T) {
 		t.Fatal(err, posts, out.String())
 	}
 }
+
+func TestCreativesCreateWithSourceInstagramMediaID(t *testing.T) {
+	posts := 0
+	a, out, _, path := testApp(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "POST" {
+			posts++
+			if err := r.ParseForm(); err != nil {
+				t.Error(err)
+			}
+			if r.Form.Get("source_instagram_media_id") != "18636447112018423" || r.Form.Get("instagram_user_id") != "17841451279536743" || r.Form.Get("object_id") != "1336593769543062" {
+				t.Errorf("unexpected creative form: %v", r.Form)
+			}
+			_, _ = fmt.Fprint(w, `{"id":"901"}`)
+			return
+		}
+		// Simulate Meta returning actor_id instead of object_id and appending a suffix to name.
+		_, _ = fmt.Fprint(w, `{"id":"901","account_id":"123","name":"Boost IG post 2026-10-22-abc123","actor_id":"1336593769543062","instagram_user_id":"17841451279536743","source_instagram_media_id":"18636447112018423","call_to_action":{"type":"LEARN_MORE","value":{"link":"https://example.com"}}}`)
+	})
+	payload := `{"name":"Boost IG post","object_id":"1336593769543062","instagram_user_id":"17841451279536743","source_instagram_media_id":"18636447112018423","call_to_action":{"type":"LEARN_MORE","value":{"link":"https://example.com"}}}`
+	a.In = bytes.NewBufferString(payload)
+	if err := executeTest(a, []string{"--config", path, "meta", "creatives", "validate", "--operation", "create", "--file", "-", "--profile", "test", "--account", "123"}); err != nil || !bytes.Contains(out.Bytes(), []byte(`"local_valid": true`)) {
+		t.Fatal(err, out.String())
+	}
+	out.Reset()
+	a.In = bytes.NewBufferString(payload)
+	if err := executeTest(a, []string{"--config", path, "meta", "creatives", "create", "--file", "-", "--profile", "test", "--account", "123", "--dry-run"}); err != nil || posts != 0 || !bytes.Contains(out.Bytes(), []byte(`"state": "planned"`)) {
+		t.Fatal(err, posts, out.String())
+	}
+	out.Reset()
+	a.In = bytes.NewBufferString(payload)
+	if err := executeTest(a, []string{"--config", path, "meta", "creatives", "create", "--file", "-", "--profile", "test", "--account", "123"}); err != nil || posts != 1 || !bytes.Contains(out.Bytes(), []byte(`"state": "verified"`)) {
+		t.Fatal(err, posts, out.String())
+	}
+}

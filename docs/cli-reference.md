@@ -350,6 +350,8 @@ adsctl meta ads create --profile agency-write --account act_123 \
   --name 'Banner A' --adset 789 --creative 202
 ```
 
+Creative payloads can define new dark-post ads (`object_story_spec` or `asset_feed_spec`), reference a Facebook post (`object_story_id`), or boost an existing organic Instagram post (`source_instagram_media_id` paired with `object_id` for the Page ID, `instagram_user_id`, and optional `call_to_action`).
+
 Video uploads accept `--mode auto|resumable|single`. The default `auto` chooses resumable for **every video**, independent of file size. This is a client policy, not a claim about a universal Meta request-size limit. Images and explicit `--mode single` use one multipart request. Both paths enforce a local nonempty regular-file bound of 1 GiB; provider limits still apply. `--dry-run` reports the selected mode and local bound without contacting Meta or creating upload state.
 
 Resumable uploads use Meta's video host and start/transfer/finish protocol. Transfers stream exactly the server's requested byte ranges, with bounded retries only within the existing session. The receipt includes `upload_id`, `response.id` (the video ID once known), the phase and confirmed offsets. `--state-dir` overrides the private checkpoint directory, otherwise `$ADSCTL_HOME/state` or `~/.adsctl/state` is used. Checkpoints contain the file SHA-256/size, session/video IDs, offsets, profile/account/API/endpoint scope, and no credentials. Keep them until processing is confirmed.
