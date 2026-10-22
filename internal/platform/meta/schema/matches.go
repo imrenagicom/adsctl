@@ -3,6 +3,7 @@ package schema
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 // MatchesPayload reports whether every planned field matches the observed
@@ -85,6 +86,9 @@ func matchesValue(resource, path string, want, got any) string {
 		}
 		return ""
 	default:
+		if isTimeField(path) && sameInstant(want, got) {
+			return ""
+		}
 		if fmt.Sprint(want) == fmt.Sprint(got) {
 			return ""
 		}
@@ -163,4 +167,46 @@ var setValuedFields = map[string]bool{
 
 func isSetValued(path string) bool {
 	return setValuedFields[path]
+}
+
+// timeFields lists native timestamp fields where Meta may return a normalized
+// UTC offset format (such as "+0700" instead of RFC 3339 "+07:00" or "Z").
+var timeFields = map[string]bool{
+	"start_time":             true,
+	"end_time":               true,
+	"stop_time":              true,
+	"created_time":           true,
+	"updated_time":           true,
+	"ad_schedule_start_time": true,
+	"ad_schedule_end_time":   true,
+}
+
+var timeLayouts = []string{
+	time.RFC3339,
+	time.RFC3339Nano,
+	"2006-01-02T15:04:05-0700",
+	"2006-01-02T15:04:05.999999999-0700",
+}
+
+func isTimeField(path string) bool {
+	return timeFields[path]
+}
+
+func sameInstant(want, got any) bool {
+	wt, wok := parseInstant(want)
+	gt, gok := parseInstant(got)
+	return wok && gok && wt.Equal(gt)
+}
+
+func parseInstant(v any) (time.Time, bool) {
+	s, ok := v.(string)
+	if !ok || s == "" {
+		return time.Time{}, false
+	}
+	for _, layout := range timeLayouts {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
 }

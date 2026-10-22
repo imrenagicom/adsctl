@@ -35,6 +35,7 @@ adsets:
       daily_budget: 2500
       billing_event: IMPRESSIONS
       optimization_goal: LINK_CLICKS
+      end_time: '2026-10-23T17:00:00+07:00'
       targeting:
         geo_locations:
           countries: [ID]
@@ -112,8 +113,11 @@ func (s *launchServer) serve(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprint(w, `{"error":{"code":100,"message":"unknown"}}`)
 		return
 	}
-	// Simulate Meta normalizing the order of a set-valued targeting field.
+	// Simulate Meta normalizing the order of a set-valued targeting field and timezone offsets.
 	if s.reorderPositions {
+		if endTime, ok := obj["end_time"].(string); ok {
+			obj["end_time"] = strings.ReplaceAll(endTime, "+07:00", "+0700")
+		}
 		if targeting, ok := obj["targeting"].(map[string]any); ok {
 			if positions, ok := targeting["instagram_positions"].([]any); ok {
 				reversed := make([]any, len(positions))

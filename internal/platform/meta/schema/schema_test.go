@@ -278,3 +278,34 @@ func TestApplyAdvantageBudgetAndPlacements(t *testing.T) {
 		t.Fatalf("expected Advantage+ placements restored: %v %v", err, advTarg)
 	}
 }
+
+func TestTimeFieldsNormalizeOffsetsAndRejectDifferentInstants(t *testing.T) {
+	observed := map[string]any{
+		"start_time": "2026-10-22T17:00:00+0700",
+		"end_time":   "2026-10-23T17:00:00+0700",
+	}
+	for _, want := range []string{
+		"2026-10-23T17:00:00+07:00",
+		"2026-10-23T17:00:00+0700",
+		"2026-10-23T10:00:00Z",
+		"2026-10-23T10:00:00+00:00",
+		"2026-10-23T10:00:00+0000",
+	} {
+		planned := map[string]any{
+			"start_time": "2026-10-22T17:00:00+07:00",
+			"end_time":   want,
+		}
+		if path := FirstMismatch("adsets", planned, observed); path != "" {
+			t.Fatalf("expected %s to match observed +0700, got mismatch=%q", want, path)
+		}
+	}
+	// Genuinely different instant must still report drift on the time field.
+	different := map[string]any{"end_time": "2026-10-23T18:00:00+07:00"}
+	if path := FirstMismatch("adsets", different, observed); path != "end_time" {
+		t.Fatalf("expected different instant to mismatch on end_time, got %q", path)
+	}
+	// Non-time string fields must keep strict string comparison.
+	if path := FirstMismatch("adsets", map[string]any{"name": "2026-10-23T17:00:00+07:00"}, map[string]any{"name": "2026-10-23T17:00:00+0700"}); path != "name" {
+		t.Fatalf("expected non-time field to compare strictly, got %q", path)
+	}
+}
