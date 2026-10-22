@@ -65,7 +65,7 @@ func Fields(resource, operation string) map[string]Field {
 		}
 	case "creatives":
 		if operation == "create" {
-			for _, k := range strings.Fields("object_story_id image_hash image_url title body link_url object_url url_tags instagram_user_id") {
+			for _, k := range strings.Fields("object_story_id object_id image_hash image_url title body link_url object_url url_tags instagram_user_id source_instagram_media_id") {
 				common[k] = "string"
 			}
 			for _, k := range strings.Fields("object_story_spec asset_feed_spec degrees_of_freedom_spec call_to_action contextual_multi_ads") {
@@ -172,14 +172,36 @@ func Validate(resource, operation string, p map[string]any) error {
 			return output.Fail("VALIDATION", "creative must reference exactly one existing creative_id.", 5)
 		}
 	}
-	if operation == "create" && resource == "creatives" && p["object_story_spec"] == nil && p["object_story_id"] == nil && p["asset_feed_spec"] == nil {
-		return output.Fail("VALIDATION", "Creative requires object_story_spec, object_story_id or asset_feed_spec.", 5)
+	if operation == "create" && resource == "creatives" {
+		if p["object_story_spec"] == nil && p["object_story_id"] == nil && p["asset_feed_spec"] == nil && p["source_instagram_media_id"] == nil {
+			return output.Fail("VALIDATION", "Creative requires object_story_spec, object_story_id, asset_feed_spec or source_instagram_media_id.", 5)
+		}
+		if p["source_instagram_media_id"] != nil {
+			if p["instagram_user_id"] == nil || p["object_id"] == nil {
+				return output.Fail("VALIDATION", "Creative with source_instagram_media_id requires instagram_user_id and object_id.", 5)
+			}
+			for _, conflict := range []string{"object_story_spec", "object_story_id", "asset_feed_spec", "image_hash", "image_url"} {
+				if p[conflict] != nil {
+					return output.Fail("VALIDATION", "source_instagram_media_id cannot be combined with "+conflict+".", 5)
+				}
+			}
+		}
 	}
 	return nil
 }
 func Keys(p map[string]any) string {
-	keys := []string{"id", "account_id"}
+	seen := map[string]bool{"id": true, "account_id": true}
 	for k := range p {
+		seen[k] = true
+		if k == "object_id" {
+			seen["actor_id"] = true
+		}
+		if k == "source_instagram_media_id" {
+			seen["effective_instagram_media_id"] = true
+		}
+	}
+	keys := make([]string, 0, len(seen))
+	for k := range seen {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
@@ -222,6 +244,9 @@ func ApplyTextOptions(p map[string]any, primaryTexts, headlines []string) error 
 	}
 	if len(primaryTexts) == 0 && len(headlines) == 0 {
 		return nil
+	}
+	if p["source_instagram_media_id"] != nil {
+		return output.Fail("VALIDATION", "source_instagram_media_id cannot be combined with primary text or headline options.", 5)
 	}
 	feed, _ := p["asset_feed_spec"].(map[string]any)
 	if feed == nil {

@@ -309,3 +309,55 @@ func TestTimeFieldsNormalizeOffsetsAndRejectDifferentInstants(t *testing.T) {
 		t.Fatalf("expected non-time field to compare strictly, got %q", path)
 	}
 }
+
+func TestSourceInstagramMediaIDCreativeValidationAndNormalization(t *testing.T) {
+	valid, err := Decode([]byte(`{
+		"name": "Boost existing IG post",
+		"object_id": "1336593769543062",
+		"instagram_user_id": "17841451279536743",
+		"source_instagram_media_id": "18636447112018423",
+		"call_to_action": {"type": "LEARN_MORE", "value": {"link": "https://example.com"}}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Validate("creatives", "create", valid); err != nil {
+		t.Fatalf("expected existing IG post creative to validate, got %v", err)
+	}
+	// Missing instagram_user_id or object_id, or mixing with conflicting creative fields, must fail.
+	for _, bad := range []string{
+		`{"name":"boost","instagram_user_id":"17841451279536743","source_instagram_media_id":"18636447112018423"}`,
+		`{"name":"boost","object_id":"1336593769543062","source_instagram_media_id":"18636447112018423"}`,
+		`{"name":"boost","object_id":"1336593769543062","instagram_user_id":"17841451279536743","source_instagram_media_id":"18636447112018423","object_story_id":"1_2"}`,
+		`{"name":"boost","object_id":"1336593769543062","instagram_user_id":"17841451279536743","source_instagram_media_id":"18636447112018423","object_story_spec":{"page_id":"1"}}`,
+		`{"name":"boost","object_id":"1336593769543062","instagram_user_id":"17841451279536743","source_instagram_media_id":"18636447112018423","asset_feed_spec":{"bodies":[{"text":"x"}]}}`,
+		`{"name":"boost","object_id":"1336593769543062","instagram_user_id":"17841451279536743","source_instagram_media_id":"18636447112018423","image_hash":"abc"}`,
+	} {
+		p, err := Decode([]byte(bad))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := Validate("creatives", "create", p); err == nil {
+			t.Fatalf("expected invalid existing IG post creative to fail: %s", bad)
+		}
+	}
+	// Meta returns actor_id instead of object_id on GET for existing IG post creatives,
+	// and may append a suffix to name.
+	observed := map[string]any{
+		"id":                        "1843733453710456",
+		"account_id":                "1850942652738542",
+		"name":                      "Boost existing IG post 2026-10-15-b393bcc469fdf1f6bb34778829edce77",
+		"actor_id":                  "1336593769543062",
+		"instagram_user_id":         "17841451279536743",
+		"source_instagram_media_id": "18636447112018423",
+		"call_to_action":            map[string]any{"type": "LEARN_MORE", "value": map[string]any{"link": "https://example.com"}},
+	}
+	if path := FirstMismatch("creatives", valid, observed); path != "" {
+		t.Fatalf("expected provider-normalized IG post creative to match, got mismatch at %s", path)
+	}
+	// Mismatched actor_id or media ID must still report drift on the planned field.
+	observed["actor_id"] = "999"
+	if path := FirstMismatch("creatives", valid, observed); path != "object_id" {
+		t.Fatalf("expected mismatched Page ID to report drift on object_id, got %s", path)
+	}
+}

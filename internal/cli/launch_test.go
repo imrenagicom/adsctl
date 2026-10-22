@@ -44,7 +44,9 @@ creatives:
   - key: post
     payload:
       name: Post
-      object_story_id: '123_456'
+      object_id: '1336593769543062'
+      instagram_user_id: '17841451279536743'
+      source_instagram_media_id: '18636447112018423'
 ads:
   - key: ad
     adset_ref: audience
@@ -117,6 +119,10 @@ func (s *launchServer) serve(w http.ResponseWriter, r *http.Request) {
 	if s.reorderPositions {
 		if endTime, ok := obj["end_time"].(string); ok {
 			obj["end_time"] = strings.ReplaceAll(endTime, "+07:00", "+0700")
+		}
+		if oid, ok := obj["object_id"]; ok {
+			obj["actor_id"] = oid
+			delete(obj, "object_id")
 		}
 		if targeting, ok := obj["targeting"].(map[string]any); ok {
 			if positions, ok := targeting["instagram_positions"].([]any); ok {

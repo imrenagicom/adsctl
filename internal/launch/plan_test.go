@@ -179,3 +179,28 @@ ads:
 		t.Fatal("expected adset daily_budget under Advantage+ campaign budget to fail")
 	}
 }
+
+func TestPlanSupportsSourceInstagramMediaIDCreative(t *testing.T) {
+	igPostManifest := strings.Replace(manifest,
+		"      object_story_id: '123_456'",
+		"      object_id: '1336593769543062'\n      instagram_user_id: '17841451279536743'\n      source_instagram_media_id: '18636447112018423'\n      call_to_action:\n        type: LEARN_MORE\n        value:\n          link: https://example.com",
+		1,
+	)
+	p, err := Compile([]byte(igPostManifest), t.TempDir(), Scope{Account: "act_123"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	step, ok := p.Step("creatives.post")
+	if !ok {
+		t.Fatal("missing creative step")
+	}
+	payload, err := Payload(step, map[string]string{})
+	if err != nil || payload["source_instagram_media_id"] != "18636447112018423" || payload["object_id"] != "1336593769543062" {
+		t.Fatalf("unexpected existing IG post creative payload: %v %v", err, payload)
+	}
+	// Missing object_id with source_instagram_media_id must fail during compile.
+	badManifest := strings.Replace(igPostManifest, "      object_id: '1336593769543062'\n", "", 1)
+	if _, err := Compile([]byte(badManifest), t.TempDir(), Scope{Account: "act_123"}); err == nil {
+		t.Fatal("expected missing object_id with source_instagram_media_id to fail")
+	}
+}

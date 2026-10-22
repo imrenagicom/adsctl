@@ -43,6 +43,19 @@ func diffPayload(resource, path string, expected, observed map[string]any) strin
 				}
 			}
 		}
+		if !ok && resource == "creatives" {
+			switch k {
+			case "object_id":
+				actual, ok = observed["actor_id"]
+				if !ok {
+					if story, sok := observed["object_story_spec"].(map[string]any); sok {
+						actual, ok = story["page_id"]
+					}
+				}
+			case "source_instagram_media_id":
+				actual, ok = observed["effective_instagram_media_id"]
+			}
+		}
 		if !ok {
 			return field
 		}
