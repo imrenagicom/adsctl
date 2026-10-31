@@ -418,3 +418,42 @@ func TestAudienceComparableSkipsUnreadableFields(t *testing.T) {
 		t.Fatal("non-audience payload changed")
 	}
 }
+
+func TestLocationTypesAcceptMetaFrequentlyInExpansion(t *testing.T) {
+	want := map[string]any{"targeting": map[string]any{"geo_locations": map[string]any{"countries": []any{"ID"}, "location_types": []any{"home", "recent"}}}}
+	for _, observed := range [][]any{{"home", "recent"}, {"recent", "home"}, {"frequently_in", "home", "recent"}} {
+		got := map[string]any{"targeting": map[string]any{"geo_locations": map[string]any{"countries": []any{"ID"}, "location_types": observed}}}
+		if path := FirstMismatch("adsets", want, got); path != "" {
+			t.Fatalf("observed %v rejected at %s", observed, path)
+		}
+	}
+	for _, observed := range [][]any{{"home"}, {"home", "recent", "travel_in"}, {"frequently_in", "home"}} {
+		got := map[string]any{"targeting": map[string]any{"geo_locations": map[string]any{"countries": []any{"ID"}, "location_types": observed}}}
+		if FirstMismatch("adsets", want, got) == "" {
+			t.Fatalf("observed %v accepted", observed)
+		}
+	}
+	homeOnly := map[string]any{"targeting": map[string]any{"geo_locations": map[string]any{"location_types": []any{"home"}}}}
+	expanded := map[string]any{"targeting": map[string]any{"geo_locations": map[string]any{"location_types": []any{"home", "frequently_in"}}}}
+	if FirstMismatch("adsets", homeOnly, expanded) == "" {
+		t.Fatal("frequently_in accepted without both home and recent")
+	}
+}
+
+func TestCustomAudiencesCompareWithoutOrder(t *testing.T) {
+	want := map[string]any{"targeting": map[string]any{
+		"custom_audiences":          []any{map[string]any{"id": "1"}, map[string]any{"id": "2"}, map[string]any{"id": "3"}},
+		"excluded_custom_audiences": []any{map[string]any{"id": "4"}, map[string]any{"id": "5"}},
+	}}
+	got := map[string]any{"targeting": map[string]any{
+		"custom_audiences":          []any{map[string]any{"id": "3", "name": "c"}, map[string]any{"id": "1", "name": "a"}, map[string]any{"id": "2", "name": "b"}},
+		"excluded_custom_audiences": []any{map[string]any{"id": "5", "name": "e"}, map[string]any{"id": "4", "name": "d"}},
+	}}
+	if path := FirstMismatch("adsets", want, got); path != "" {
+		t.Fatalf("reordered audiences rejected at %s", path)
+	}
+	got["targeting"].(map[string]any)["custom_audiences"] = []any{map[string]any{"id": "3"}, map[string]any{"id": "1"}, map[string]any{"id": "9"}}
+	if FirstMismatch("adsets", want, got) == "" {
+		t.Fatal("different audience accepted")
+	}
+}

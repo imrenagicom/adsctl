@@ -83,6 +83,12 @@ func matchesValue(resource, path string, want, got any) string {
 		return diffPayload(resource, path, v, g)
 	case []any:
 		g, ok := got.([]any)
+		if ok && path == "targeting.geo_locations.location_types" {
+			if locationTypesMatch(v, g) {
+				return ""
+			}
+			return path
+		}
 		if !ok || len(v) != len(g) {
 			return path
 		}
@@ -132,6 +138,33 @@ func matchesSet(resource, path string, want, got []any) bool {
 	return true
 }
 
+// locationTypesMatch compares geo location types as a set. Meta expands a
+// request for both "home" and "recent" to also include "frequently_in", so
+// that single provider-added value is accepted; any other difference fails.
+func locationTypesMatch(want, got []any) bool {
+	planned := map[string]bool{}
+	for _, w := range want {
+		planned[fmt.Sprint(w)] = true
+	}
+	observed := map[string]bool{}
+	for _, g := range got {
+		observed[fmt.Sprint(g)] = true
+	}
+	for k := range planned {
+		if !observed[k] {
+			return false
+		}
+	}
+	expanded := planned["home"] && planned["recent"]
+	for k := range observed {
+		if planned[k] || (k == "frequently_in" && expanded) {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 // nameNormalized reports whether an observed provider name is the planned name
 // with an appended provider marker. Meta appends a date/hash suffix to some
 // creative names, so a leading match followed by a separator is treated as the
@@ -170,6 +203,8 @@ var setValuedFields = map[string]bool{
 	"asset_feed_spec.call_to_action_types": true,
 	"asset_feed_spec.titles":               true,
 	"special_ad_categories":                true,
+	"targeting.custom_audiences":           true,
+	"targeting.excluded_custom_audiences":  true,
 	"targeting.publisher_platforms":        true,
 	"targeting.facebook_positions":         true,
 	"targeting.instagram_positions":        true,
