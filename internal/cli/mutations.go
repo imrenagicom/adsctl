@@ -22,7 +22,7 @@ type mutationFlags struct {
 
 func (a *App) addMutations(g *cobra.Command, resource string) {
 	for _, op := range []string{"create", "update", "validate", "pause", "activate", "archive", "delete"} {
-		if resource == "creatives" && (op == "pause" || op == "activate" || op == "archive") {
+		if (resource == "creatives" || resource == "audiences") && (op == "pause" || op == "activate" || op == "archive") {
 			continue
 		}
 		f := &mutationFlags{}
@@ -57,7 +57,7 @@ func (a *App) addMutations(g *cobra.Command, resource string) {
 			}
 			if op != "validate" {
 				cmd.Flags().StringVar(&f.Name, "name", "", "Native name")
-				if resource != "creatives" {
+				if resource != "creatives" && resource != "audiences" {
 					cmd.Flags().StringVar(&f.Status, "status", "", "Native status (create defaults PAUSED)")
 				}
 				if resource == "campaigns" {
@@ -302,7 +302,11 @@ func mutate(r *runtime, resource, op, id string, p map[string]any, dry bool) (ma
 		return receipt, nil
 	}
 	fields := schema.Keys(p)
-	if resource != "creatives" {
+	switch resource {
+	case "creatives":
+	case "audiences":
+		fields = joinFields(fields, "approximate_count_lower_bound,approximate_count_upper_bound,operation_status,delivery_status")
+	default:
 		fields = joinFields(fields, "status,effective_status")
 	}
 	observed, err := r.Client.Request(r.Ctx, "GET", id, url.Values{"fields": {fields}})
@@ -324,7 +328,7 @@ func mutate(r *runtime, resource, op, id string, p map[string]any, dry bool) (ma
 		receipt["state"] = "applied_unverified"
 		return receipt, output.Fail("APPLIED_UNVERIFIED", "Configured status has not converged to the requested value.", 9)
 	}
-	if path := schema.FirstMismatch(resource, p, observed.Value); path != "" {
+	if path := schema.FirstMismatch(resource, schema.Comparable(resource, p), observed.Value); path != "" {
 		receipt["state"] = "applied_unverified"
 		return receipt, output.Fail("APPLIED_UNVERIFIED", "Observed field "+path+" has not converged to the requested value; do not recreate.", 9)
 	}

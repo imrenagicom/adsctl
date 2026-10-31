@@ -76,6 +76,8 @@ adsctl
 │   ├── instagram-accounts <list|get ID>
 │   ├── pixels <list|get ID>
 │   ├── audiences <list|get ID>
+│   ├── audiences <create|validate>
+│   ├── audiences <update|delete> ID
 │   ├── targeting search
 │   ├── insights
 │   │   ├── query
@@ -99,7 +101,7 @@ adsctl
 └── google ...                                           [future]
 ```
 
-Resource mutations belong to stages 3/4; preview/media/supporting-asset discovery arrives as needed for stage 4. Insights jobs/reports belong to stage 1B. Issues/activity/recommendations/snapshots/monitoring/business discovery belong to stage 2. Pages/Instagram/pixels/audiences are discovery only initially. `images` identifies uploaded media by returned hashes; do not invent an image-ID CRUD interface. Video get/wait handles processing state.
+Resource mutations belong to stages 3/4; preview/media/supporting-asset discovery arrives as needed for stage 4. Insights jobs/reports belong to stage 1B. Issues/activity/recommendations/snapshots/monitoring/business discovery belong to stage 2. Pages/Instagram/pixels are discovery only. Audiences support rule-based create/update/delete (no customer-file uploads). `images` identifies uploaded media by returned hashes; do not invent an image-ID CRUD interface. Video get/wait handles processing state.
 
 ## 3. Shared flags and input rules
 
@@ -351,6 +353,13 @@ adsctl meta ads create --profile agency-write --account act_123 \
 ```
 
 Creative payloads can define new dark-post ads (`object_story_spec` or `asset_feed_spec`), reference a Facebook post (`object_story_id`), or boost an existing organic Instagram post (`source_instagram_media_id` paired with `object_id` for the Page ID, `instagram_user_id`, and optional `call_to_action`).
+
+Rule-based custom audiences are created from a native payload file: website audiences use a pixel `event_sources` rule, Instagram profile engagers use an `ig_business` source, and video viewers use the list rule `[{"object_id": VIDEO_ID, "event_name": ...}]` with `subtype: ENGAGEMENT`. Writable fields are `name`, `description`, `rule`, `retention_days`, `prefill` and `subtype` (create only). Customer-file fields are rejected, so no personal data is uploaded. Audiences have no status, so pause/activate/archive do not exist; a new audience reports its size only after Meta finishes populating it.
+
+```sh
+adsctl meta audiences create --profile agency-write --account act_123 --file web-visitors.json --dry-run
+adsctl meta audiences get 777 --profile agency-read --account act_123
+```
 
 Video uploads accept `--mode auto|resumable|single`. The default `auto` chooses resumable for **every video**, independent of file size. This is a client policy, not a claim about a universal Meta request-size limit. Images and explicit `--mode single` use one multipart request. Both paths enforce a local nonempty regular-file bound of 1 GiB; provider limits still apply. `--dry-run` reports the selected mode and local bound without contacting Meta or creating upload state.
 

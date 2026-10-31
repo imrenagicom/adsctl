@@ -361,3 +361,60 @@ func TestSourceInstagramMediaIDCreativeValidationAndNormalization(t *testing.T) 
 		t.Fatalf("expected mismatched Page ID to report drift on object_id, got %s", path)
 	}
 }
+
+func TestAudienceSchemaAcceptsRuleBasedAudiences(t *testing.T) {
+	for _, input := range []string{
+		`{"name":"Web visitors 180d","prefill":true,"rule":{"inclusions":{"operator":"or","rules":[{"event_sources":[{"id":"1855259662305866","type":"pixel"}],"retention_seconds":15552000,"filter":{"operator":"and","filters":[{"field":"url","operator":"i_contains","value":""}]}}]}}}`,
+		`{"name":"IG engagers 90d","prefill":true,"rule":{"inclusions":{"operator":"or","rules":[{"event_sources":[{"id":"17841451279536743","type":"ig_business"}],"retention_seconds":7776000,"filter":{"operator":"and","filters":[{"field":"event","operator":"eq","value":"ig_business_profile_all"}]}}]}}}`,
+		`{"name":"Video viewers","subtype":"ENGAGEMENT","retention_days":365,"prefill":true,"rule":[{"object_id":"1234567890","event_name":"video_view_50_percent"}]}`,
+	} {
+		p, err := Decode([]byte(input))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = Validate("audiences", "create", p); err != nil {
+			t.Fatal(input, err)
+		}
+	}
+}
+
+func TestAudienceSchemaRejectsCustomerFilesAndMalformedRules(t *testing.T) {
+	for _, input := range []string{
+		`{"name":"x","customer_file_source":"USER_PROVIDED_ONLY","subtype":"CUSTOM"}`,
+		`{"name":"x","rule":{"inclusions":{"rules":[]}}}`,
+		`{"name":"x","rule":{"inclusions":{"rules":[{"retention_seconds":60}]}}}`,
+		`{"name":"x","rule":{"inclusions":{"rules":[{"event_sources":[{"id":"abc","type":"pixel"}]}]}}}`,
+		`{"name":"x","subtype":"ENGAGEMENT","rule":{"inclusions":{"rules":[{"event_sources":[{"id":"123","type":"pixel"}]}]}}}`,
+		`{"name":"x","rule":[{"object_id":"123","event_name":"video_watched"}]}`,
+		`{"name":"x","subtype":"ENGAGEMENT","rule":[{"object_id":"123"}]}`,
+		`{"name":"x","retention_days":0,"rule":{"inclusions":{"rules":[{"event_sources":[{"id":"123","type":"pixel"}]}]}}}`,
+		`{"name":"x","status":"PAUSED","rule":{"inclusions":{"rules":[{"event_sources":[{"id":"123","type":"pixel"}]}]}}}`,
+		`{"rule":{"inclusions":{"rules":[{"event_sources":[{"id":"123","type":"pixel"}]}]}}}`,
+	} {
+		p, err := Decode([]byte(input))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if Validate("audiences", "create", p) == nil {
+			t.Fatal("accepted", input)
+		}
+	}
+	p, _ := Decode([]byte(`{"subtype":"ENGAGEMENT"}`))
+	if Validate("audiences", "update", p) == nil {
+		t.Fatal("accepted subtype on update")
+	}
+}
+
+func TestAudienceComparableSkipsUnreadableFields(t *testing.T) {
+	p := map[string]any{"name": "x", "prefill": true, "rule": map[string]any{"inclusions": map[string]any{}}, "retention_days": "30"}
+	got := Comparable("audiences", p)
+	if len(got) != 2 || got["rule"] != nil || got["prefill"] != nil {
+		t.Fatal(got)
+	}
+	if Keys(p) != "account_id,id,name,retention_days,rule" {
+		t.Fatal(Keys(p))
+	}
+	if len(Comparable("campaigns", p)) != 4 {
+		t.Fatal("non-audience payload changed")
+	}
+}

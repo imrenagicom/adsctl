@@ -341,3 +341,49 @@ func TestCreativesCreateWithSourceInstagramMediaID(t *testing.T) {
 		t.Fatal(err, posts, out.String())
 	}
 }
+
+func TestAudiencesCreateVerifiesWithoutStatusOrRuleEcho(t *testing.T) {
+	posts := 0
+	a, out, _, path := testApp(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "POST" {
+			posts++
+			if r.URL.Path != "/v25.0/act_123/customaudiences" {
+				t.Errorf("unexpected path %s", r.URL.Path)
+			}
+			if err := r.ParseForm(); err != nil {
+				t.Error(err)
+			}
+			if r.Form.Get("status") != "" || r.Form.Get("prefill") != "true" || !bytes.Contains([]byte(r.Form.Get("rule")), []byte(`"type":"pixel"`)) {
+				t.Errorf("unexpected audience form: %v", r.Form)
+			}
+			_, _ = fmt.Fprint(w, `{"id":"777"}`)
+			return
+		}
+		if bytes.Contains([]byte(r.URL.Query().Get("fields")), []byte("prefill")) || bytes.Contains([]byte(r.URL.Query().Get("fields")), []byte("effective_status")) {
+			t.Errorf("unreadable audience fields requested: %s", r.URL.Query().Get("fields"))
+		}
+		// Meta echoes the rule as an encoded string.
+		_, _ = fmt.Fprint(w, `{"id":"777","account_id":"123","name":"Web visitors 180d","rule":"{\"inclusions\":{}}","approximate_count_lower_bound":-1,"operation_status":{"code":200}}`)
+	})
+	payload := `{"name":"Web visitors 180d","prefill":true,"rule":{"inclusions":{"operator":"or","rules":[{"event_sources":[{"id":"1855259662305866","type":"pixel"}],"retention_seconds":15552000}]}}}`
+	a.In = bytes.NewBufferString(payload)
+	if err := executeTest(a, []string{"--config", path, "meta", "audiences", "create", "--file", "-", "--profile", "test", "--account", "123", "--dry-run"}); err != nil || posts != 0 || !bytes.Contains(out.Bytes(), []byte(`"state": "planned"`)) {
+		t.Fatal(err, posts, out.String())
+	}
+	out.Reset()
+	a.In = bytes.NewBufferString(payload)
+	if err := executeTest(a, []string{"--config", path, "meta", "audiences", "create", "--file", "-", "--profile", "test", "--account", "123"}); err != nil || posts != 1 || !bytes.Contains(out.Bytes(), []byte(`"state": "verified"`)) {
+		t.Fatal(err, posts, out.String())
+	}
+}
+
+func TestAudiencesHaveNoStatusOperations(t *testing.T) {
+	a, _, _, path := testApp(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprint(w, `{"id":"777","account_id":"123"}`)
+	})
+	for _, op := range []string{"pause", "activate", "archive"} {
+		if err := executeTest(a, []string{"--config", path, "meta", "audiences", op, "777", "--profile", "test", "--account", "123", "--dry-run"}); err == nil {
+			t.Fatal("audiences accepted", op)
+		}
+	}
+}
