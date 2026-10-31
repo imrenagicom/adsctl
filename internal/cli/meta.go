@@ -203,7 +203,7 @@ func (a *App) addResource(meta *cobra.Command, resource string) {
 	if resource == "images" || resource == "videos" {
 		a.addMedia(g, resource)
 	}
-	if isOwned(resource) && resource != "audiences" {
+	if isOwned(resource) {
 		a.addMutations(g, resource)
 	}
 	if resource != "images" {
@@ -285,6 +285,8 @@ func defaultFields(resource string) string {
 		return "id,name,account_id,object_story_spec"
 	case "videos":
 		return "id,title,status"
+	case "audiences":
+		return "id,name,subtype,approximate_count_lower_bound,approximate_count_upper_bound,retention_days,operation_status,delivery_status"
 	default:
 		return "id,name"
 	}

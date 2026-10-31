@@ -77,7 +77,7 @@ Resource reads answer “what is configured?” Insights reads answer “what ha
 | 2: monitoring | Delivery issues, activity, available Meta recommendations, snapshots/diffs, portfolios, monitoring rules | Agent can check clients and explain changes |
 | 3: management | Pause/activate, budget changes, supported updates, archive/delete, creative replacement, mutation receipts | Agent can make and verify targeted changes |
 | 4: creation | Media uploads, creatives/previews, campaigns/ad sets/ads, launch plan/apply/resume | Agent can prepare and activate a complete campaign |
-| Later | Further objectives/formats, catalogs, audience creation, webhook receiver, Google | Broader coverage within the same interface |
+| Later | Further objectives/formats, catalogs, customer-file audiences, webhook receiver, Google | Broader coverage within the same interface |
 
 Read all supported Meta objectives from the start. Guided creation should first cover image/video website traffic, then website sales using existing tracking assets, followed by carousel and existing-post workflows. Lead forms, app/messaging/catalog campaigns and specialized Advantage+ configurations need separately validated templates. A field appearing in an SDK does not establish that every combination is supported.
 

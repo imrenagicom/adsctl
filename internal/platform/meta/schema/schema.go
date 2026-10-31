@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strconv"
 	"strings"
 
 	"adsctl/internal/config"
@@ -78,10 +79,22 @@ func Fields(resource, operation string) map[string]Field {
 			common["name"] = "string"
 			common["adlabels"] = "array"
 		}
+	case "audiences":
+		// Only rule-based audiences (website, engagement, video) are writable.
+		// Customer-file fields are deliberately absent so personal data is never
+		// uploaded through this path.
+		delete(common, "adlabels")
+		common["description"] = "string"
+		common["rule"] = "rule"
+		common["retention_days"] = "integer"
+		if operation == "create" {
+			common["prefill"] = "boolean"
+			common["subtype"] = "string"
+		}
 	default:
 		return nil
 	}
-	required := map[string][]string{"campaigns": {"name", "objective", "special_ad_categories"}, "adsets": {"name", "campaign_id", "billing_event", "optimization_goal", "targeting"}, "ads": {"name", "adset_id", "creative"}, "creatives": {"name"}}
+	required := map[string][]string{"campaigns": {"name", "objective", "special_ad_categories"}, "adsets": {"name", "campaign_id", "billing_event", "optimization_goal", "targeting"}, "ads": {"name", "adset_id", "creative"}, "creatives": {"name"}, "audiences": {"name", "rule"}}
 	out := map[string]Field{}
 	for k, v := range common {
 		f := Field{Type: v}
@@ -93,6 +106,9 @@ func Fields(resource, operation string) map[string]Field {
 		}
 		if k == "objective" {
 			f.Enum = []string{"OUTCOME_AWARENESS", "OUTCOME_ENGAGEMENT", "OUTCOME_LEADS", "OUTCOME_SALES", "OUTCOME_TRAFFIC", "OUTCOME_APP_PROMOTION"}
+		}
+		if k == "subtype" {
+			f.Enum = []string{"ENGAGEMENT"}
 		}
 		out[k] = f
 	}
@@ -139,6 +155,13 @@ func Validate(resource, operation string, p map[string]any) error {
 			_, valid = v.([]any)
 		case "boolean":
 			_, valid = v.(bool)
+		case "rule":
+			switch r := v.(type) {
+			case map[string]any:
+				valid = len(r) > 0
+			case []any:
+				valid = len(r) > 0
+			}
 		}
 		if len(f.Enum) > 0 {
 			allowed := false
@@ -172,6 +195,11 @@ func Validate(resource, operation string, p map[string]any) error {
 			return output.Fail("VALIDATION", "creative must reference exactly one existing creative_id.", 5)
 		}
 	}
+	if resource == "audiences" {
+		if err := validateAudience(operation, p); err != nil {
+			return err
+		}
+	}
 	if operation == "create" && resource == "creatives" {
 		if p["object_story_spec"] == nil && p["object_story_id"] == nil && p["asset_feed_spec"] == nil && p["source_instagram_media_id"] == nil {
 			return output.Fail("VALIDATION", "Creative requires object_story_spec, object_story_id, asset_feed_spec or source_instagram_media_id.", 5)
@@ -189,9 +217,77 @@ func Validate(resource, operation string, p map[string]any) error {
 	}
 	return nil
 }
+
+// validateAudience checks the shape Meta documents for rule-based audiences:
+// an inclusions object whose rules each name event_sources, or the list form
+// [{object_id, event_name}] that video engagement audiences use with
+// subtype=ENGAGEMENT.
+func validateAudience(operation string, p map[string]any) error {
+	switch rule := p["rule"].(type) {
+	case map[string]any:
+		inclusions, _ := rule["inclusions"].(map[string]any)
+		rules, _ := inclusions["rules"].([]any)
+		if len(rules) == 0 {
+			return output.Fail("VALIDATION", "rule requires inclusions.rules with at least one rule.", 5)
+		}
+		for _, raw := range rules {
+			entry, _ := raw.(map[string]any)
+			sources, _ := entry["event_sources"].([]any)
+			if len(sources) == 0 {
+				return output.Fail("VALIDATION", "Each audience rule requires event_sources.", 5)
+			}
+			for _, rawSource := range sources {
+				source, _ := rawSource.(map[string]any)
+				typ, _ := source["type"].(string)
+				if config.ID(fmt.Sprint(source["id"])) != nil || typ == "" {
+					return output.Fail("VALIDATION", "Each event source requires a numeric id and a type.", 5)
+				}
+			}
+		}
+		if p["subtype"] != nil {
+			return output.Fail("VALIDATION", "subtype is only supported with the video engagement list rule.", 5)
+		}
+	case []any:
+		for _, raw := range rule {
+			entry, _ := raw.(map[string]any)
+			if config.ID(fmt.Sprint(entry["object_id"])) != nil || entry["event_name"] == nil || entry["event_name"] == "" {
+				return output.Fail("VALIDATION", "Video engagement rules require object_id and event_name.", 5)
+			}
+		}
+		if operation == "create" && p["subtype"] != "ENGAGEMENT" {
+			return output.Fail("VALIDATION", "Video engagement list rules require subtype ENGAGEMENT.", 5)
+		}
+	}
+	if days, ok := p["retention_days"]; ok {
+		if n, err := strconv.Atoi(fmt.Sprint(days)); err != nil || n < 1 || n > 730 {
+			return output.Fail("VALIDATION", "retention_days must be between 1 and 730.", 5)
+		}
+	}
+	return nil
+}
+
+// Comparable returns the planned fields that a read after write can confirm.
+// Meta returns an audience rule as an encoded string and does not read back
+// prefill, so those are reported but not compared.
+func Comparable(resource string, p map[string]any) map[string]any {
+	if resource != "audiences" {
+		return p
+	}
+	out := map[string]any{}
+	for k, v := range p {
+		if k != "rule" && k != "prefill" {
+			out[k] = v
+		}
+	}
+	return out
+}
+
 func Keys(p map[string]any) string {
 	seen := map[string]bool{"id": true, "account_id": true}
 	for k := range p {
+		if k == "prefill" {
+			continue
+		}
 		seen[k] = true
 		if k == "object_id" {
 			seen["actor_id"] = true
@@ -208,7 +304,7 @@ func Keys(p map[string]any) string {
 	return strings.Join(keys, ",")
 }
 func Defaults(resource string, p map[string]any) {
-	if resource != "creatives" && p["status"] == nil {
+	if resource != "creatives" && resource != "audiences" && p["status"] == nil {
 		p["status"] = "PAUSED"
 	}
 }
