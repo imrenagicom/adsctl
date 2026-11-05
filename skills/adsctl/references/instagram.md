@@ -1,6 +1,6 @@
-# Instagram publishing
+# Instagram publishing and insights
 
-`adsctl ig` publishes organic content to an Instagram professional account through the Instagram Graph API (Facebook Login path: `graph.facebook.com` and `rupload.facebook.com`). It uses the same profiles as `adsctl meta`; the token must hold `instagram_basic` and `instagram_content_publish` for the account, and `instagram_manage_contents` to delete media. `ig auth check` lists any `missing_permissions`. Scope is an IG user ID, not an ad account.
+`adsctl ig` publishes organic content to an Instagram professional account through the Instagram Graph API (Facebook Login path: `graph.facebook.com` and `rupload.facebook.com`). It uses the same profiles as `adsctl meta`; the token must hold `instagram_basic` and `instagram_content_publish` for the account, `instagram_manage_contents` to delete media, and `instagram_manage_insights` to read insights. `ig auth check` lists any `missing_permissions`. Scope is an IG user ID, not an ad account.
 
 ## Find scope and check access
 
@@ -12,6 +12,27 @@ adsctl ig media list --profile "$PROFILE" --ig-user "$IG_USER" --page-size 10
 ```
 
 `accounts list` returns Pages with their `instagram_business_account`; use that `id` as `--ig-user`. `auth check` reports granted permissions when the token allows `me/permissions`; `content_publish_permission: "unknown"` is not a grant.
+
+## Insights
+
+Insights are reads and work with a read profile. They cover organic performance; paid delivery of a boosted post belongs to `adsctl meta insights`.
+
+```sh
+adsctl ig insights media --profile "$PROFILE" --ig-user "$IG_USER" --max-items 25
+adsctl ig insights media --profile "$PROFILE" --ig-user "$IG_USER" --type reels --since 2026-10-01 --until 2026-10-31
+adsctl ig insights media MEDIA_ID [MEDIA_ID...] --profile "$PROFILE"
+adsctl ig insights media --profile "$PROFILE" --ig-user "$IG_USER" --stories
+adsctl ig insights account --profile "$PROFILE" --ig-user "$IG_USER" --date-preset last_28d
+adsctl ig insights account --profile "$PROFILE" --ig-user "$IG_USER" --metric reach --metric-type time_series --since 2026-10-01 --until 2026-10-28
+adsctl ig insights audience --profile "$PROFILE" --ig-user "$IG_USER" --audience followers --breakdown age,gender
+```
+
+- `media` returns one row per item: `id`, `media_product_type`, `media_type`, `permalink`, `timestamp`, then each metric by its Meta name. Default metrics by product type: FEED `reach,views,likes,comments,shares,saved,total_interactions,follows,profile_visits`; REELS `reach,views,likes,comments,shares,saved,total_interactions,ig_reels_avg_watch_time,ig_reels_video_view_total_time`; STORY `reach,views,replies,shares,total_interactions,follows,profile_visits,navigation`. An explicit `--metric` is sent unchanged for every item, so keep a mixed selection to metrics all product types support, or filter with `--type`. `--breakdown action_type` (with `profile_activity`) and `story_navigation_action_type` (with `navigation`) add `<metric>_by_<dimension>` maps. `--raw` adds Meta's native rows under `insights`.
+- Listing without IDs reads the newest `--max-items` media and keeps those published within `--since`/`--until`; raise `--max-items` for older periods and check `meta.media_complete`. Ad-only media (`AD`) and carousel children have no organic insights. Story insights exist only while the Story is live (24 hours), so collect them the same day.
+- A failed item gets `error: {code, message}` on its row with a `PARTIAL_INSIGHTS` warning; `Not enough viewers` (`ACCESS_DENIED`) is normal for Stories under 5 viewers. Invalid tokens, throttling, timeouts and missing permissions stop the run and return the rows read so far.
+- `account` defaults to `total_value` over `last_7d` (complete UTC days; `meta.range` records the exact window). `--breakdown media_product_type|follow_type|follower_type|contact_button_type` works only with `total_value`; `time_series` returns one row per `end_time` and Meta supports it for `reach` only; Meta's daily buckets end at midnight US Pacific (`end_time` 07:00 or 08:00 UTC), so they do not align exactly with the UTC request window. Account totals include paid delivery: use `--breakdown media_product_type` and read the `AD` share before calling account reach or views organic. `reach` and `accounts_engaged` are deduplicated estimates: do not add daily values or per-post reach to get account reach.
+- `audience` needs at least 100 followers (or 100 engagements in the timeframe for `--audience engaged`), returns only Meta's top 45 values, and uses `--timeframe this_week|this_month`.
+- Missing metrics mean Meta returned no data, not zero. Values can lag by up to 48 hours, so treat the last two days as provisional.
 
 ## Publish
 

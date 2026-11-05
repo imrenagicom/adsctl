@@ -23,7 +23,8 @@ import (
 // Instagram publishing uses the Instagram Graph API through Facebook Login
 // (graph.facebook.com and rupload.facebook.com) with the profile's token. The
 // token needs instagram_basic and instagram_content_publish for the IG user,
-// plus instagram_manage_contents to delete media.
+// plus instagram_manage_contents to delete media and instagram_manage_insights
+// to read insights (see instagram_insights.go).
 
 const (
 	igMaxCaption     = 2200
@@ -98,9 +99,9 @@ func (a *App) addInstagram(root *cobra.Command) {
 	}))
 
 	var authUser string
-	auth := group("auth", "Check Instagram publishing access")
+	auth := group("auth", "Check Instagram publishing and insights access")
 	ig.AddCommand(auth)
-	check := action("check", "Verify the IG user is readable and report publishing permissions and quota", "read", func(c *cobra.Command, _ []string) error {
+	check := action("check", "Verify the IG user is readable and report publishing and insights permissions and quota", "read", func(c *cobra.Command, _ []string) error {
 		r, err := a.igRuntime(c, &authUser, true, false)
 		if err != nil {
 			return err
@@ -110,7 +111,7 @@ func (a *App) addInstagram(root *cobra.Command) {
 		if err != nil {
 			return err
 		}
-		result := map[string]any{"ig_user": user.Value, "mode": r.Mode, "content_publish_permission": "unknown", "content_delete_permission": "unknown"}
+		result := map[string]any{"ig_user": user.Value, "mode": r.Mode, "content_publish_permission": "unknown", "content_delete_permission": "unknown", "insights_permission": "unknown"}
 		if perms, e := r.Client.Request(r.Ctx, "GET", "me/permissions", nil); e == nil {
 			granted := []string{}
 			rows, _ := perms.Value["data"].([]any)
@@ -123,8 +124,9 @@ func (a *App) addInstagram(root *cobra.Command) {
 			result["granted_permissions"] = granted
 			result["content_publish_permission"] = slices.Contains(granted, "instagram_content_publish")
 			result["content_delete_permission"] = slices.Contains(granted, "instagram_manage_contents")
+			result["insights_permission"] = slices.Contains(granted, "instagram_manage_insights")
 			missing := []string{}
-			for _, p := range []string{"instagram_basic", "instagram_content_publish", "instagram_manage_contents", "pages_show_list", "pages_read_engagement"} {
+			for _, p := range []string{"instagram_basic", "instagram_content_publish", "instagram_manage_contents", "instagram_manage_insights", "pages_show_list", "pages_read_engagement"} {
 				if !slices.Contains(granted, p) {
 					missing = append(missing, p)
 				}
@@ -159,6 +161,7 @@ func (a *App) addInstagram(root *cobra.Command) {
 	a.addInstagramContainers(ig)
 	a.addInstagramPublish(ig)
 	a.addInstagramPost(ig)
+	a.addInstagramInsights(ig)
 }
 
 func (a *App) addInstagramMedia(ig *cobra.Command) {

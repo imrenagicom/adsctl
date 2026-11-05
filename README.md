@@ -272,6 +272,19 @@ adsctl ig post --profile client-write --ig-user 17841400000000000 --type carouse
 
 Instagram writes require explicit `--profile` and `--ig-user` with a write-mode profile. The profile's token must be a Facebook Login (Page or Business system user) token with `instagram_basic` and `instagram_content_publish` (plus `instagram_manage_contents` for `ig media delete`) for the linked professional account; Instagram Login tokens (`graph.instagram.com`) are not supported. Images must be JPEG at a public URL that Meta can fetch, and local files are accepted only for Reel and Story video (`.mp4`/`.mov`). Captions are checked locally against Instagram's 2,200 character, 30 hashtag and 20 mention limits. Commands that wait for video processing default to a 10-minute `--timeout`.
 
+### Instagram insights
+
+```sh
+adsctl ig insights media --profile client-read --ig-user 17841400000000000 --type reels --since 2026-10-01
+adsctl ig insights media 18000000000000001 18000000000000002 --profile client-read
+adsctl ig insights media --profile client-read --ig-user 17841400000000000 --stories
+adsctl ig insights account --profile client-read --ig-user 17841400000000000 --date-preset last_28d --breakdown media_product_type
+adsctl ig insights account --profile client-read --ig-user 17841400000000000 --metric reach --metric-type time_series
+adsctl ig insights audience --profile client-read --ig-user 17841400000000000 --breakdown country
+```
+
+`ig insights media` returns one row per post, Reel or Story with lifetime metrics flattened next to the media fields (`reach`, `views`, `saved`, `ig_reels_avg_watch_time`, ...). Without `--metric` it picks a metric set per `media_product_type`, because Meta rejects a whole request when one metric does not apply. Without IDs it reads the IG user's recent media (`--max-items`, default 25), filtered by `--type` and publish date; `--stories` reads live Stories, whose insights Meta keeps for only 24 hours. A media item that has no insights gets an `error` on its row and the rest continue. `ig insights account` reads account totals (`total_value`, including ad delivery; `--breakdown media_product_type` separates `AD`) or per-day `time_series` over complete UTC days (Meta's daily buckets end at midnight US Pacific); `ig insights audience` reads follower or engaged-audience demographics. Insights need `instagram_manage_insights` and can lag by up to 48 hours.
+
 ## Agent contract and current limits
 
 Data-producing commands emit a versioned envelope with `ok`, native `data`, scope/query/completeness `meta`, `warnings` and `error`. JSONL uses meta/data/error/end records; results are currently buffered within configured bounds, not streamed while fetching. Tables are generic, lossy and have no ANSI colors. Execution errors use JSON on stderr; partial operations may also emit an `ok:false` receipt on stdout. Help, completion, generated Markdown docs and `--skills` output are text.
