@@ -49,6 +49,14 @@ adsctl
 │       ├── get NAME
 │       ├── set NAME
 │       └── delete NAME
+├── ig                                                 [Instagram publishing]
+│   ├── accounts list
+│   ├── auth check --ig-user ID
+│   ├── limit --ig-user ID
+│   ├── media <list --ig-user ID|get ID|delete ID --ig-user ID>
+│   ├── containers <create|upload ID|get ID|wait ID>
+│   ├── publish CONTAINER_ID --ig-user ID
+│   └── post --type <image|reel|story|carousel>
 ├── meta
 │   ├── auth check
 │   ├── schema get RESOURCE

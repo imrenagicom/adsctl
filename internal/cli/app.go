@@ -136,6 +136,7 @@ func (a *App) Root() *cobra.Command {
 	root.AddCommand(completion)
 	a.addConfig(root)
 	a.addMeta(root)
+	a.addInstagram(root)
 	annotateHelp(root)
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return output.Fail("USAGE", fmt.Sprint(err), 2) })
 	return root
@@ -153,8 +154,14 @@ func annotateHelp(root *cobra.Command) {
 	}
 	effect := root.Annotations["effect"]
 	root.Long = root.Short + ".\n\nEffect: " + effect + ". Data defaults to a versioned JSON envelope on stdout.\nErrors and verbose diagnostics use stderr. --output jsonl and table are also available."
-	if effect == "write" {
+	if effect == "write" && strings.HasPrefix(root.CommandPath(), "adsctl ig ") {
+		root.Long += "\nInstagram writes require explicit --profile and a write-mode profile; commands that take --ig-user require it explicitly.\nContainers stay unpublished until publish; publish makes content public. --dry-run calls no Meta API."
+	} else if effect == "write" {
 		root.Long += "\nAdvertising writes require explicit --profile and --account, plus a write-mode profile.\nCommands exposing --dry-run do not modify advertising in that mode. Unknown create outcomes exit 10 and require reconciliation."
 	}
-	root.Example = "  " + root.CommandPath() + " --help\n  adsctl commands --platform meta --capability " + effect
+	platform := "meta"
+	if strings.HasPrefix(root.CommandPath(), "adsctl ig ") {
+		platform = "ig"
+	}
+	root.Example = "  " + root.CommandPath() + " --help\n  adsctl commands --platform " + platform + " --capability " + effect
 }
