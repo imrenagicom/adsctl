@@ -253,6 +253,25 @@ Reconciliation checks account membership and planned fields; image attachment ch
 
 Local state defaults to `~/.adsctl/state`, or `$ADSCTL_HOME/state`; set `--state-dir` consistently for runners that need another location. State files are private and writes are atomic. Locks coordinate processes on one host, not distributed runners.
 
+## Publish to Instagram
+
+```sh
+adsctl ig accounts list --profile client-read            # find the IG user ID linked to each Page
+adsctl ig auth check --profile client-write --ig-user 17841400000000000
+adsctl ig post --profile client-write --ig-user 17841400000000000 \
+  --type reel --file reel.mp4 --caption-file caption.md --dry-run
+adsctl ig post --profile client-write --ig-user 17841400000000000 \
+  --type reel --file reel.mp4 --caption-file caption.md
+adsctl ig post --profile client-write --ig-user 17841400000000000 \
+  --type image --image-url https://cdn.example.com/post.jpg --caption 'Hello' --alt-text 'Product screenshot'
+adsctl ig post --profile client-write --ig-user 17841400000000000 --type carousel \
+  --item image=https://cdn.example.com/1.jpg --item video=https://cdn.example.com/2.mp4 --caption 'Swipe'
+```
+
+`ig post` creates a media container, uploads a local Reel or Story video through Meta's resumable upload host, waits until the container is `FINISHED`, checks the 24-hour publishing quota and publishes. `--no-publish` stops at a ready container; publish it later with `adsctl ig publish CONTAINER_ID --ig-user ID`. The step-by-step commands are `ig containers create|upload|get|wait`, `ig publish`, `ig media list|get|delete` and `ig limit`. `ig media delete ID --ig-user ID` permanently removes a non-ad post, Reel, Story or whole carousel after checking the media belongs to that IG user; `--dry-run` shows what would be deleted. Containers are private and expire after 24 hours; publishing is public and is never retried: a lost publish acknowledgment is reconciled from the container status, and a container that already reports `PUBLISHED` is refused.
+
+Instagram writes require explicit `--profile` and `--ig-user` with a write-mode profile. The profile's token must be a Facebook Login (Page or Business system user) token with `instagram_basic` and `instagram_content_publish` (plus `instagram_manage_contents` for `ig media delete`) for the linked professional account; Instagram Login tokens (`graph.instagram.com`) are not supported. Images must be JPEG at a public URL that Meta can fetch, and local files are accepted only for Reel and Story video (`.mp4`/`.mov`). Captions are checked locally against Instagram's 2,200 character, 30 hashtag and 20 mention limits. Commands that wait for video processing default to a 10-minute `--timeout`.
+
 ## Agent contract and current limits
 
 Data-producing commands emit a versioned envelope with `ok`, native `data`, scope/query/completeness `meta`, `warnings` and `error`. JSONL uses meta/data/error/end records; results are currently buffered within configured bounds, not streamed while fetching. Tables are generic, lossy and have no ANSI colors. Execution errors use JSON on stderr; partial operations may also emit an `ok:false` receipt on stdout. Help, completion, generated Markdown docs and `--skills` output are text.
