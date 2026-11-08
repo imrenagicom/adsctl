@@ -496,6 +496,7 @@ func (a *App) addInstagramContainers(ig *cobra.Command) {
 
 	var user string
 	var dry bool
+	var retry igUploadRetry
 	s := &igSpec{}
 	create := action("create", "Create an unpublished media container (nothing is public until publish)", "write", func(c *cobra.Command, _ []string) error {
 		params, upload, err := a.igParams(c, s)
@@ -514,24 +515,15 @@ func (a *App) addInstagramContainers(ig *cobra.Command) {
 		if dry {
 			return a.emit(c, receipt)
 		}
-		id, err := igCreate(r, user, params)
-		if err != nil {
-			receipt["state"] = igFailState(err)
+		if _, err = igCreateUpload(r, user, params, upload, retry, receipt); err != nil {
 			return a.partial(c, receipt, err)
-		}
-		receipt["container_id"], receipt["state"] = id, "created"
-		if upload != "" {
-			if _, err = r.Client.UploadInstagramVideo(r.Ctx, id, upload); err != nil {
-				receipt["state"] = "created_upload_failed"
-				return a.partial(c, receipt, err)
-			}
-			receipt["state"] = "uploaded"
 		}
 		return a.emit(c, receipt)
 	})
 	create.Flags().StringVar(&user, "ig-user", "", "Instagram user ID")
 	create.Flags().BoolVar(&dry, "dry-run", false, "Validate and print the container request without calling Meta")
 	create.Flags().StringSliceVar(&s.Children, "child", nil, "Carousel child container ID (repeatable, 2 to 20)")
+	addUploadRetryFlags(create, &retry)
 	addSpecFlags(create, s, "image, reel, story, carousel-item, carousel")
 	containers.AddCommand(create)
 
@@ -641,6 +633,7 @@ func (a *App) addInstagramPost(ig *cobra.Command) {
 	var user string
 	var dry, noPublish bool
 	var interval time.Duration
+	var retry igUploadRetry
 	s := &igSpec{}
 	post := action("post", "Create, upload, wait for and publish an Instagram post, reel, story or carousel", "write", func(c *cobra.Command, _ []string) error {
 		if s.Type == "carousel-item" {
@@ -698,18 +691,9 @@ func (a *App) addInstagramPost(ig *cobra.Command) {
 			}
 			params.Set("children", strings.Join(children, ","))
 		}
-		id, err := igCreate(r, user, params)
+		id, err := igCreateUpload(r, user, params, upload, retry, receipt)
 		if err != nil {
-			receipt["state"] = igFailState(err)
 			return a.partial(c, receipt, err)
-		}
-		receipt["container_id"], receipt["state"] = id, "created"
-		if upload != "" {
-			if _, err = r.Client.UploadInstagramVideo(r.Ctx, id, upload); err != nil {
-				receipt["state"] = "created_upload_failed"
-				return a.partial(c, receipt, err)
-			}
-			receipt["state"] = "uploaded"
 		}
 		status, err := igWait(r, id, interval)
 		receipt["container_status"] = status
@@ -734,6 +718,7 @@ func (a *App) addInstagramPost(ig *cobra.Command) {
 	post.Flags().BoolVar(&noPublish, "no-publish", false, "Stop after the container is FINISHED; publish later with adsctl ig publish")
 	post.Flags().DurationVar(&interval, "poll-interval", 10*time.Second, "Container status polling interval")
 	post.Flags().StringArrayVar(&s.Items, "item", nil, "Carousel item as image=URL or video=URL (repeatable, 2 to 20, in order)")
+	addUploadRetryFlags(post, &retry)
 	addSpecFlags(post, s, "image, reel, story, carousel")
 	ig.AddCommand(post)
 }
@@ -762,6 +747,80 @@ func igItem(item string) (url.Values, error) {
 func igLongTimeout(c *cobra.Command, a *App) {
 	if !c.Flags().Changed("timeout") && a.opts.Timeout < 10*time.Minute {
 		a.opts.Timeout = 10 * time.Minute
+	}
+}
+
+// igUploadRetry bounds how often a failed local-file upload is retried.
+type igUploadRetry struct {
+	Attempts int
+	Wait     time.Duration
+}
+
+func addUploadRetryFlags(c *cobra.Command, r *igUploadRetry) {
+	c.Flags().IntVar(&r.Attempts, "upload-attempts", 3, "Attempts for a local --file upload; each retry uses a new private container (1 disables retries)")
+	c.Flags().DurationVar(&r.Wait, "upload-retry-wait", time.Minute, "Wait before the first upload retry; doubles for each further retry")
+}
+
+// igUploadRetrySafe reports whether a failed upload may be retried. A
+// container stays private until media_publish, so any upload failure that is
+// not a credential, permission, input or deadline problem is safe to repeat
+// against a fresh container: nothing can be published twice.
+func igUploadRetrySafe(err error) bool {
+	switch output.AsError(err).Exit {
+	case 6, 8, 10:
+		return true
+	}
+	return false
+}
+
+// igCreateUpload creates the container and, for a local file, uploads it.
+// Meta's upload host sometimes rejects a valid file (HTTP 400 with
+// debug_info ProcessingFailedError, marked not retriable) and accepts the
+// same bytes minutes later, so a rejected upload is retried on a new
+// container with backoff. Every attempt is recorded in the receipt.
+func igCreateUpload(r *runtime, user string, params url.Values, upload string, retry igUploadRetry, receipt map[string]any) (string, error) {
+	attempts := retry.Attempts
+	if attempts < 1 || upload == "" {
+		attempts = 1
+	}
+	wait := retry.Wait
+	var tries []map[string]any
+	for k := 1; ; k++ {
+		id, err := igCreate(r, user, params)
+		if err != nil {
+			receipt["state"] = igFailState(err)
+			return "", err
+		}
+		receipt["container_id"], receipt["state"] = id, "created"
+		if upload == "" {
+			return id, nil
+		}
+		_, err = r.Client.UploadInstagramVideo(r.Ctx, id, upload)
+		if err == nil {
+			receipt["state"] = "uploaded"
+			if len(tries) > 0 {
+				receipt["upload_attempts"] = append(tries, map[string]any{"container_id": id, "result": "uploaded"})
+			}
+			return id, nil
+		}
+		e := output.AsError(err)
+		tries = append(tries, map[string]any{"container_id": id, "result": "failed", "code": e.Code, "message": e.Message, "http_status": e.HTTPStatus})
+		receipt["upload_attempts"], receipt["state"] = tries, "created_upload_failed"
+		if k >= attempts || !igUploadRetrySafe(err) {
+			if k > 1 {
+				e.Message = fmt.Sprintf("%s (attempt %d of %d; every container is unpublished)", strings.TrimSuffix(e.Message, "."), k, attempts)
+			}
+			return "", e
+		}
+		if r.Client.Log != nil {
+			_, _ = fmt.Fprintf(r.Client.Log, "upload attempt %d of %d failed (%s); retrying on a new container in %s\n", k, attempts, e.Message, wait)
+		}
+		select {
+		case <-r.Ctx.Done():
+			return "", output.Fail("TIMEOUT", "Deadline reached while waiting to retry the upload; nothing was published.", 7)
+		case <-time.After(wait):
+		}
+		wait *= 2
 	}
 }
 

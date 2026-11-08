@@ -81,6 +81,14 @@ func (c *Client) UploadInstagramVideo(ctx context.Context, containerID, path str
 		if e.Code == "MUTATION_UNKNOWN" {
 			e.Code = "UPLOAD_UNKNOWN"
 		}
+		// A rejected upload (for example HTTP 400 with debug_info
+		// ProcessingFailedError) left the private container unpublished.
+		if debug, ok := r.Value["debug_info"].(map[string]any); ok && e.Code == "PROVIDER" {
+			e.Code = "UPLOAD_FAILED"
+			if reason := debugReason(debug); reason != "" {
+				e.Message = fmt.Sprintf("Instagram upload failed (HTTP %d): %s.", e.HTTPStatus, reason)
+			}
+		}
 		e.SuggestedAction = "The container is unpublished. Check it with adsctl ig containers get " + containerID + " before retrying the upload."
 		return r, e
 	}
@@ -88,8 +96,8 @@ func (c *Client) UploadInstagramVideo(ctx context.Context, containerID, path str
 		message := "Instagram upload did not acknowledge success."
 		e := output.Fail("UPLOAD_FAILED", message, 8)
 		if debug, ok := r.Value["debug_info"].(map[string]any); ok {
-			if m := fmt.Sprint(debug["message"]); debug["message"] != nil && m != "" {
-				e.Message = "Instagram upload failed: " + m
+			if reason := debugReason(debug); reason != "" {
+				e.Message = "Instagram upload failed: " + reason + "."
 			}
 			e.Provider = debug
 			e.Retryable = debug["retriable"] == true

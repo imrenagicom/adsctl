@@ -160,6 +160,13 @@ func (c *Client) readResponse(method string, resp *http.Response) (Response, err
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		e := output.Fail("PROVIDER", fmt.Sprintf("Graph returned HTTP %d.", resp.StatusCode), 8)
 		e.HTTPStatus = resp.StatusCode
+		// Upload hosts (rupload) explain failures in debug_info instead of error.
+		if debug, ok := value["debug_info"].(map[string]any); ok {
+			if reason := debugReason(debug); reason != "" {
+				e.Message = fmt.Sprintf("Graph returned HTTP %d: %s.", resp.StatusCode, reason)
+			}
+			e.Provider = debug
+		}
 		if resp.StatusCode == http.StatusRequestEntityTooLarge {
 			e.Message = "Graph returned HTTP 413: the request body was rejected as too large."
 			e.SuggestedAction = "Reduce the upload copy or use meta videos upload --mode resumable."
@@ -184,6 +191,22 @@ func (c *Client) readResponse(method string, resp *http.Response) (Response, err
 	}
 	return r, nil
 }
+
+// debugReason renders an upload host's debug_info as "Type: message".
+func debugReason(debug map[string]any) string {
+	t, _ := debug["type"].(string)
+	m, _ := debug["message"].(string)
+	m = strings.TrimSuffix(strings.TrimSpace(m), ".")
+	switch {
+	case t != "" && m != "":
+		return t + ": " + m
+	case m != "":
+		return m
+	default:
+		return t
+	}
+}
+
 func providerError(p map[string]any, method string) *output.Error {
 	code := fmt.Sprint(p["code"])
 	e := output.Fail("PROVIDER", fmt.Sprint(p["message"]), 8)

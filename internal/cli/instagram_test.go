@@ -264,7 +264,7 @@ func TestInstagramUploadFailureKeepsContainerPrivate(t *testing.T) {
 	if err := os.WriteFile(video, []byte("video"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	err := executeTest(a, []string{"--config", cfg, "ig", "containers", "create", "--profile", "test", "--ig-user", "1784", "--type", "story", "--file", video})
+	err := executeTest(a, []string{"--config", cfg, "ig", "containers", "create", "--profile", "test", "--ig-user", "1784", "--type", "story", "--file", video, "--upload-attempts", "1"})
 	if err == nil || output.AsError(err).Code != "UPLOAD_FAILED" || !output.AsError(err).Retryable {
 		t.Fatal(err, out.String())
 	}
@@ -307,5 +307,112 @@ func TestInstagramMediaDeleteChecksOwner(t *testing.T) {
 	_, data := igEnvelope(t, out)
 	if data["state"] != "deleted" || data["deleted_id"] != "9001" || deletes != 1 {
 		t.Fatal(out.String())
+	}
+}
+
+// Meta's upload host answers a rejected upload with HTTP 400 and a debug_info
+// object (no Graph "error"); the reason must reach the user.
+func TestInstagramUploadHTTP400ShowsReason(t *testing.T) {
+	a, out, _, cfg := testApp(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v25.0/1784/media":
+			_, _ = fmt.Fprint(w, `{"id":"555"}`)
+		case "/ig-api-upload/v25.0/555":
+			w.WriteHeader(400)
+			_, _ = fmt.Fprint(w, `{"debug_info":{"retriable":false,"type":"ProcessingFailedError","message":"Request processing failed"}}`)
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	})
+	video := filepath.Join(t.TempDir(), "reel.mp4")
+	if err := os.WriteFile(video, []byte("video"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	err := executeTest(a, []string{"--config", cfg, "ig", "containers", "create", "--profile", "test", "--ig-user", "1784", "--type", "reel", "--file", video, "--upload-attempts", "1"})
+	e := output.AsError(err)
+	if err == nil || e.Code != "UPLOAD_FAILED" || e.HTTPStatus != 400 || !strings.Contains(e.Message, "ProcessingFailedError: Request processing failed") {
+		t.Fatal(err, out.String())
+	}
+	if _, data := igEnvelope(t, out); data["state"] != "created_upload_failed" {
+		t.Fatal(out.String())
+	}
+}
+
+// A rejected upload is retried on a new private container and only the
+// container that uploaded is published.
+func TestInstagramUploadRetriesOnNewContainer(t *testing.T) {
+	var mu sync.Mutex
+	created, publishedID := 0, ""
+	a, out, errOut, cfg := testApp(t, func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch {
+		case r.Method == "POST" && r.URL.Path == "/v25.0/1784/media":
+			created++
+			_, _ = fmt.Fprintf(w, `{"id":"55%d"}`, created)
+		case r.Method == "POST" && r.URL.Path == "/ig-api-upload/v25.0/551":
+			w.WriteHeader(400)
+			_, _ = fmt.Fprint(w, `{"debug_info":{"retriable":false,"type":"ProcessingFailedError","message":"Request processing failed"}}`)
+		case r.Method == "POST" && r.URL.Path == "/ig-api-upload/v25.0/552":
+			_, _ = fmt.Fprint(w, `{"success":true,"message":"Upload Successful."}`)
+		case r.Method == "GET" && r.URL.Path == "/v25.0/552":
+			status := "FINISHED"
+			if publishedID != "" {
+				status = "PUBLISHED"
+			}
+			_, _ = fmt.Fprintf(w, `{"id":"552","status_code":"%s"}`, status)
+		case r.Method == "GET" && r.URL.Path == "/v25.0/1784/content_publishing_limit":
+			_, _ = fmt.Fprint(w, `{"data":[{"config":{"quota_total":100,"quota_duration":86400},"quota_usage":3}]}`)
+		case r.Method == "POST" && r.URL.Path == "/v25.0/1784/media_publish":
+			_ = r.ParseForm()
+			publishedID = r.Form.Get("creation_id")
+			_, _ = fmt.Fprint(w, `{"id":"9001"}`)
+		case r.Method == "GET" && r.URL.Path == "/v25.0/9001":
+			_, _ = fmt.Fprint(w, `{"id":"9001","permalink":"https://www.instagram.com/reel/abc/","media_product_type":"REELS"}`)
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(404)
+		}
+	})
+	video := filepath.Join(t.TempDir(), "reel.mp4")
+	if err := os.WriteFile(video, []byte("video"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	err := executeTest(a, []string{"--config", cfg, "ig", "post", "--profile", "test", "--ig-user", "1784", "--type", "reel", "--file", video, "--poll-interval", "1ms", "--upload-retry-wait", "1ms"})
+	if err != nil {
+		t.Fatal(err, out.String(), errOut.String())
+	}
+	_, data := igEnvelope(t, out)
+	tries, _ := data["upload_attempts"].([]any)
+	if data["state"] != "published" || data["container_id"] != "552" || publishedID != "552" || created != 2 || len(tries) != 2 {
+		t.Fatal(out.String())
+	}
+	if first, _ := tries[0].(map[string]any); first["container_id"] != "551" || first["code"] != "UPLOAD_FAILED" {
+		t.Fatal(out.String())
+	}
+}
+
+// Credential and permission failures are not retried.
+func TestInstagramUploadAuthFailureNotRetried(t *testing.T) {
+	created := 0
+	a, out, _, cfg := testApp(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v25.0/1784/media":
+			created++
+			_, _ = fmt.Fprint(w, `{"id":"555"}`)
+		case "/ig-api-upload/v25.0/555":
+			w.WriteHeader(400)
+			_, _ = fmt.Fprint(w, `{"error":{"message":"Invalid OAuth access token.","code":190}}`)
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	})
+	video := filepath.Join(t.TempDir(), "reel.mp4")
+	if err := os.WriteFile(video, []byte("video"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	err := executeTest(a, []string{"--config", cfg, "ig", "containers", "create", "--profile", "test", "--ig-user", "1784", "--type", "reel", "--file", video, "--upload-retry-wait", "1ms"})
+	if err == nil || output.AsError(err).Code != "AUTH_INVALID" || created != 1 {
+		t.Fatal(err, created, out.String())
 	}
 }
